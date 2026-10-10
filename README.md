@@ -7,7 +7,9 @@ A Home Assistant HACS custom integration for **Danfoss eTRV0103 valves paired di
 
 ## Why this integration exists
 
-ZHA pairs and exposes each valve, but a device quirk alone cannot decide which *other* Home Assistant sensors and contacts belong to the same room or coordinate multiple valves. This integration uses selected HA areas as room groups: it discovers the eligible ZHA valves, accepts temperature and window/door contacts from **any HA integration**, computes one room temperature and window state, and sends them to each valve through existing ZHA entities. You keep ZHA as the Zigbee coordinator and can use your existing room devices without pairing them to a Danfoss gateway. The separate ZHA quirk exposes valve controls; this integration provides the cross-device logic, controlled write cadence, fallback, and diagnostics.
+Think of each valve as a radiator that can talk, but only about *itself*. ZHA gives Home Assistant a **climate** entity to set its target temperature, a **number** entity for a temperature measured elsewhere in the room, and a **switch** to tell it that a window is open. Depending on the installed ZHA quirk, you may also see a switch for external-temperature priority and extra valve status or settings. The separate quirk makes these valve controls available; HACS does **not** install the quirk.
+
+The valve does not know which wall thermometer or window contact belongs to its room. This integration is the messenger: it finds them by the Home Assistant area, averages *recent* room temperatures (not valve/device temperatures), and passes that value and the combined window signal to every eligible valve in the room. Sensors and contacts may come from other HA integrations. It also shows the calculated room temperature, number of valid sensors, and window state in HA. This supplies **some** gateway-style coordination while the valves remain paired directly to ZHA—not every Danfoss gateway feature.
 
 ### Compared with Danfoss's Feature Catalogue
 
@@ -39,7 +41,7 @@ The PDF also recommends avoiding unnecessary radio traffic (§1.1). The integrat
 1. In HACS, add `https://github.com/k3mpaxl/danfoss-ally-coordinator` as a custom repository of category **Integration**.
 2. Install **Danfoss Ally Coordinator**, then restart Home Assistant.
 3. Open **Settings → Devices & services → Add integration**, search for **Danfoss Ally Coordinator**, and select the intended areas.
-4. Keep **Enable Zigbee synchronization** off initially. Verify discovered sensors and contacts before enabling any writes.
+4. First leave **Enable Zigbee synchronization** off and check the HA area assignments of the valves, room sensors, and contacts (the setup screen shows candidate counts, not individual source names). A wrong area assignment could otherwise send the *wrong room's* temperature or window state to a valve. Then turn synchronization on to start sending values; this is a one-time safety check, not a requirement to keep the integration off.
 
 ### Manual
 
