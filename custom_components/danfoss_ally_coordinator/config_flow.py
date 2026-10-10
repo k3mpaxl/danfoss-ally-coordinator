@@ -29,16 +29,20 @@ from .const import (
 from .discovery import async_discover_rooms
 
 
+def _area_option_label(room) -> str:
+    """Show discovery counts without binding labels to one UI language."""
+    return (
+        f"{room.name} (TRV {len(room.valves)} · "
+        f"T {len(room.temperature_entity_ids)} · W {len(room.window_entity_ids)})"
+    )
+
+
 def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
     """Build an area selector from live, eligible ZHA Danfoss room groups."""
     area_options = [
         selector.SelectOptionDict(
             value=room.area_id,
-            label=(
-                f"{room.name} ({len(room.valves)} Danfoss eTRV, "
-                f"{len(room.temperature_entity_ids)} Temperatursensoren, "
-                f"{len(room.window_entity_ids)} Öffnungskontakte)"
-            ),
+            label=_area_option_label(room),
         )
         for room in rooms
     ]

@@ -1,4 +1,4 @@
 refresh:
-  name: Erkennung und Synchronisierung aktualisieren
-  description: Erkennt die Quellen in den konfigurierten Bereichen erneut und wertet sie sofort aus. Es werden nur dann Zigbee-Writes ausgeführt, wenn die Integration ausdrücklich aktiviert ist.
+  name: Refresh discovery and synchronization
+  description: Rediscover sources in configured areas and evaluate them immediately. Zigbee writes occur only when synchronization is explicitly enabled.
   fields: {}

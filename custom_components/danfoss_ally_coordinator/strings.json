@@ -2,50 +2,56 @@
   "config": {
     "step": {
       "user": {
-        "title": "Danfoss-Ally-Räume auswählen",
-        "description": "Die Integration erkennt ZHA-Danfoss-eTRV0103 nach Home-Assistant-Bereichen. Prüfen Sie, ob jeder Bereich tatsächlich einen gemeinsamen beheizten Raum darstellt.",
+        "title": "Select Danfoss Ally rooms",
+        "description": "The integration detects ZHA Danfoss eTRV0103 valves from Home Assistant areas. Verify that every selected area represents one real heated room.",
         "data": {
-          "areas": "Zu koordinierende Bereiche",
-          "enabled": "Zigbee-Synchronisierung aktivieren",
-          "max_sensor_age_minutes": "Maximales Alter eines Temperaturwerts",
-          "prioritize_external_sensor": "Externen Temperatursensor am Danfoss-Ventil priorisieren",
-          "sync_temperature": "Raumtemperatur an Ventile schreiben",
-          "sync_windows": "Fensterstatus an Ventile schreiben"
+          "areas": "Areas to coordinate",
+          "enabled": "Enable Zigbee synchronization",
+          "max_sensor_age_minutes": "Maximum age of a temperature value",
+          "prioritize_external_sensor": "Prioritize external temperature sensor on Danfoss valve",
+          "sync_temperature": "Write room temperature to valves",
+          "sync_windows": "Write window status to valves"
         },
         "data_description": {
-          "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche mit keinem passenden ZHA-Danfoss-Thermostat erscheinen nicht.",
-          "enabled": "Ausgeschaltet berechnet und zeigt die Integration Mittelwert/Fensterstatus, schreibt aber keine Thermostatwerte.",
-          "max_sensor_age_minutes": "Ältere, unbekannte oder nichtnumerische Temperaturwerte werden vom Mittelwert ausgeschlossen."
+          "areas": "Only selected areas are monitored. Areas without a matching ZHA Danfoss thermostat are omitted.",
+          "enabled": "When off, the integration calculates and displays mean/window state but never writes thermostat values.",
+          "max_sensor_age_minutes": "Older, unavailable, and non-numeric temperature values are excluded from the mean."
         }
       }
     },
     "abort": {
-      "already_configured": "Der Danfoss Ally Coordinator ist bereits eingerichtet.",
-      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-eTRV0103 und den erforderlichen Steuer-Entities gefunden."
+      "already_configured": "Danfoss Ally Coordinator is already configured.",
+      "no_supported_rooms": "No area with a supported ZHA Danfoss eTRV0103 and required control entities was found."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Danfoss Ally Coordinator konfigurieren",
+        "title": "Configure Danfoss Ally Coordinator",
         "data": {
-          "areas": "Zu koordinierende Bereiche",
-          "enabled": "Zigbee-Synchronisierung aktivieren",
-          "max_sensor_age_minutes": "Maximales Alter eines Temperaturwerts",
-          "prioritize_external_sensor": "Externen Temperatursensor am Danfoss-Ventil priorisieren",
-          "sync_temperature": "Raumtemperatur an Ventile schreiben",
-          "sync_windows": "Fensterstatus an Ventile schreiben"
+          "areas": "Areas to coordinate",
+          "enabled": "Enable Zigbee synchronization",
+          "max_sensor_age_minutes": "Maximum age of a temperature value",
+          "prioritize_external_sensor": "Prioritize external temperature sensor on Danfoss valve",
+          "sync_temperature": "Write room temperature to valves",
+          "sync_windows": "Write window status to valves"
         }
       }
     }
   },
   "entity": {
     "sensor": {
-      "mean_temperature": {"name": "Mittlere Raumtemperatur"},
-      "temperature_sources": {"name": "Gültige Temperaturquellen"}
+      "mean_temperature": {"name": "Mean room temperature"},
+      "temperature_sources": {"name": "Valid temperature sources"}
     },
     "binary_sensor": {
-      "window_open": {"name": "Fenster geöffnet"}
+      "window_open": {"name": "Window open"}
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh discovery and synchronization",
+      "description": "Rediscover sources in the configured areas and evaluate them immediately. Zigbee writes occur only when synchronization is explicitly enabled."
     }
   }
 }

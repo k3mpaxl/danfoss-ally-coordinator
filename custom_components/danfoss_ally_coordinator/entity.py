@@ -21,7 +21,7 @@ class DanfossAllyRoomEntity(Entity):
             "identifiers": {("danfoss_ally_coordinator", room.area_id)},
             "name": f"Danfoss Ally – {room.name}",
             "manufacturer": "Danfoss Ally Coordinator",
-            "model": "Raumkoordinator",
+            "model": "Room coordinator",
         }
 
     async def async_added_to_hass(self) -> None:

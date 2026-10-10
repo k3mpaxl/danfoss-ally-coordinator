@@ -47,5 +47,11 @@
     "binary_sensor": {
       "window_open": {"name": "Fenster geöffnet"}
     }
+  },
+  "services": {
+    "refresh": {
+      "name": "Erkennung und Synchronisierung aktualisieren",
+      "description": "Erkennt Quellen in den konfigurierten Bereichen erneut und wertet sie sofort aus. Zigbee-Schreibvorgänge erfolgen nur bei ausdrücklich aktivierter Synchronisierung."
+    }
   }
 }

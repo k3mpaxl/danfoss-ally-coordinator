@@ -47,5 +47,11 @@
     "binary_sensor": {
       "window_open": {"name": "Window open"}
     }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh discovery and synchronization",
+      "description": "Rediscover sources in the configured areas and evaluate them immediately. Zigbee writes occur only when synchronization is explicitly enabled."
+    }
   }
 }
