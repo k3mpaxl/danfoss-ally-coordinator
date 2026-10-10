@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select Danfoss Ally rooms",
+        "description": "The integration detects ZHA Danfoss eTRV0103 valves from Home Assistant areas. Verify that every selected area represents one real heated room.",
+        "data": {
+          "areas": "Areas to coordinate",
+          "enabled": "Enable Zigbee synchronization",
+          "max_sensor_age_minutes": "Maximum age of a temperature value",
+          "prioritize_external_sensor": "Prioritize external temperature sensor on Danfoss valve",
+          "sync_temperature": "Write room temperature to valves",
+          "sync_windows": "Write window status to valves"
+        },
+        "data_description": {
+          "areas": "Only selected areas are monitored. Areas without a matching ZHA Danfoss thermostat are omitted.",
+          "enabled": "When off, the integration calculates and displays mean/window state but never writes thermostat values.",
+          "max_sensor_age_minutes": "Older, unavailable, and non-numeric temperature values are excluded from the mean."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Danfoss Ally Coordinator is already configured.",
+      "no_supported_rooms": "No area with a supported ZHA Danfoss eTRV0103 and required control entities was found."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Danfoss Ally Coordinator",
+        "data": {
+          "areas": "Areas to coordinate",
+          "enabled": "Enable Zigbee synchronization",
+          "max_sensor_age_minutes": "Maximum age of a temperature value",
+          "prioritize_external_sensor": "Prioritize external temperature sensor on Danfoss valve",
+          "sync_temperature": "Write room temperature to valves",
+          "sync_windows": "Write window status to valves"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "mean_temperature": {"name": "Mean room temperature"},
+      "temperature_sources": {"name": "Valid temperature sources"}
+    },
+    "binary_sensor": {
+      "window_open": {"name": "Window open"}
+    }
+  }
+}

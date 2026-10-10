@@ -1,0 +1,4 @@
+refresh:
+  name: Erkennung und Synchronisierung aktualisieren
+  description: Erkennt die Quellen in den konfigurierten Bereichen erneut und wertet sie sofort aus. Es werden nur dann Zigbee-Writes ausgeführt, wenn die Integration ausdrücklich aktiviert ist.
+  fields: {}

@@ -1,0 +1,51 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Danfoss-Ally-Räume auswählen",
+        "description": "Die Integration erkennt ZHA-Danfoss-eTRV0103 nach Home-Assistant-Bereichen. Prüfen Sie, ob jeder Bereich tatsächlich einen gemeinsamen beheizten Raum darstellt.",
+        "data": {
+          "areas": "Zu koordinierende Bereiche",
+          "enabled": "Zigbee-Synchronisierung aktivieren",
+          "max_sensor_age_minutes": "Maximales Alter eines Temperaturwerts",
+          "prioritize_external_sensor": "Externen Temperatursensor am Danfoss-Ventil priorisieren",
+          "sync_temperature": "Raumtemperatur an Ventile schreiben",
+          "sync_windows": "Fensterstatus an Ventile schreiben"
+        },
+        "data_description": {
+          "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche mit keinem passenden ZHA-Danfoss-Thermostat erscheinen nicht.",
+          "enabled": "Ausgeschaltet berechnet und zeigt die Integration Mittelwert/Fensterstatus, schreibt aber keine Thermostatwerte.",
+          "max_sensor_age_minutes": "Ältere, unbekannte oder nichtnumerische Temperaturwerte werden vom Mittelwert ausgeschlossen."
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Der Danfoss Ally Coordinator ist bereits eingerichtet.",
+      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-eTRV0103 und den erforderlichen Steuer-Entities gefunden."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Danfoss Ally Coordinator konfigurieren",
+        "data": {
+          "areas": "Zu koordinierende Bereiche",
+          "enabled": "Zigbee-Synchronisierung aktivieren",
+          "max_sensor_age_minutes": "Maximales Alter eines Temperaturwerts",
+          "prioritize_external_sensor": "Externen Temperatursensor am Danfoss-Ventil priorisieren",
+          "sync_temperature": "Raumtemperatur an Ventile schreiben",
+          "sync_windows": "Fensterstatus an Ventile schreiben"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "mean_temperature": {"name": "Mittlere Raumtemperatur"},
+      "temperature_sources": {"name": "Gültige Temperaturquellen"}
+    },
+    "binary_sensor": {
+      "window_open": {"name": "Fenster geöffnet"}
+    }
+  }
+}
