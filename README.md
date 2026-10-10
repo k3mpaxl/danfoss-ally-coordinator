@@ -5,8 +5,6 @@
 
 A Home Assistant HACS custom integration for **Danfoss eTRV0103 valves paired directly with ZHA**. It adds the *room-level coordination* that a Danfoss gateway would otherwise perform for two specific functions: supplying room-sensor temperature to each valve and distributing a room's external window-open signal. No proprietary Danfoss gateway is required for these functions. Tested against Home Assistant **2026.10.0**.
 
-> This repository is **not** the Danfoss ECL 310 Modbus integration. It controls Danfoss Ally Zigbee valves already paired to ZHA.
-
 ## Why this integration exists
 
 ZHA pairs and exposes each valve, but a device quirk alone cannot decide which *other* Home Assistant sensors and contacts belong to the same room or coordinate multiple valves. This integration uses selected HA areas as room groups: it discovers the eligible ZHA valves, accepts temperature and window/door contacts from **any HA integration**, computes one room temperature and window state, and sends them to each valve through existing ZHA entities. You keep ZHA as the Zigbee coordinator and can use your existing room devices without pairing them to a Danfoss gateway. The separate ZHA quirk exposes valve controls; this integration provides the cross-device logic, controlled write cadence, fallback, and diagnostics.
