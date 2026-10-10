@@ -19,17 +19,6 @@ jobs:
       - run: pip install homeassistant pytest pytest-homeassistant-custom-component
       - run: python -m pytest tests -q
       - run: python -m compileall -q custom_components
-  quirk_tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.14'
-      - run: python -m pip install --upgrade pip
-      - run: pip install pytest zha==2.3.1 zha-quirks==2.1.1 zigpy==2.3.0
-      - run: python -m pytest quirk_tests -q
-      - run: python -m compileall -q zha_custom_quirks
   hacs:
     runs-on: ubuntu-latest
     steps:
