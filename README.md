@@ -41,7 +41,6 @@ The PDF also recommends avoiding unnecessary radio traffic (§1.1). The integrat
 1. In HACS, add `https://github.com/k3mpaxl/danfoss-ally-coordinator` as a custom repository of category **Integration**.
 2. Install **Danfoss Ally Coordinator**, then restart Home Assistant.
 3. Open **Settings → Devices & services → Add integration**, search for **Danfoss Ally Coordinator**, and select the intended areas.
-4. First leave **Enable Zigbee synchronization** off and check the HA area assignments of the valves, room sensors, and contacts (the setup screen shows candidate counts, not individual source names). A wrong area assignment could otherwise send the *wrong room's* temperature or window state to a valve. Then turn synchronization on to start sending values; this is a one-time safety check, not a requirement to keep the integration off.
 
 ### Manual
 
