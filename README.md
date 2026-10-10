@@ -3,9 +3,29 @@
 [![Lint](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/lint.yml/badge.svg)](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/lint.yml)
 [![Validate](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/validate.yml/badge.svg)](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/validate.yml)
 
-A Home Assistant HACS custom integration for **ZHA Danfoss eTRV0103** radiator valves. It discovers eligible valves, room temperature sensors, and opening contacts by Home Assistant area; averages valid room readings; and synchronizes external temperature and window state through the existing ZHA number/switch entities. Tested against Home Assistant **2026.10.0**.
+A Home Assistant HACS custom integration for **Danfoss eTRV0103 valves paired directly with ZHA**. It adds the *room-level coordination* that a Danfoss gateway would otherwise perform for two specific functions: supplying room-sensor temperature to each valve and distributing a room's external window-open signal. No proprietary Danfoss gateway is required for these functions. Tested against Home Assistant **2026.10.0**.
 
 > This repository is **not** the Danfoss ECL 310 Modbus integration. It controls Danfoss Ally Zigbee valves already paired to ZHA.
+
+## Why this integration exists
+
+ZHA pairs and exposes each valve, but a device quirk alone cannot decide which *other* Home Assistant sensors and contacts belong to the same room or coordinate multiple valves. This integration uses selected HA areas as room groups: it discovers the eligible ZHA valves, accepts temperature and window/door contacts from **any HA integration**, computes one room temperature and window state, and sends them to each valve through existing ZHA entities. You keep ZHA as the Zigbee coordinator and can use your existing room devices without pairing them to a Danfoss gateway. The separate ZHA quirk exposes valve controls; this integration provides the cross-device logic, controlled write cadence, fallback, and diagnostics.
+
+### Compared with Danfoss's Feature Catalogue
+
+Checked against Danfoss, *Feature Catalogue Ally electronic Radiator Thermostat (eTRV)*, document `AU417130778872en-000201` (June 2022). “Gateway-like” below describes **only the implemented subset**, not gateway equivalence. The catalogue describes Zigbee interfaces and recommended gateway behavior; it does not certify this integration or every `eTRV0103` firmware variant.
+
+| Catalogue feature | What this installation provides |
+| :--- | :--- |
+| §2.3 external room sensor (`0x0201/0x4015`) | **Integration:** arithmetic mean of fresh, eligible sensors in the *same selected area*, written to each valve's ZHA external-temperature number. For an exposed radiator, the valve itself applies its adaptive offset; the integration does not calculate that offset. Writes are normally no closer than 30 minutes apart for a change of at least 0.1 °C, with a refresh before the catalogue's three-hour timeout. |
+| §3.3 external window detection (`0x0201/0x4003`) | **Integration:** any `on` room window/opening/door contact requests external window-open mode on all eligible valves in that area; when none is `on`, the external signal is cleared. This is contact aggregation, **not** coordination based on another valve's own open-window detection (`0x4000`). The valve's window feature (`0x4051`) must be enabled for the signal to have the intended effect. |
+| §2.4 covered-radiator external room sensor | **Not supported as a dedicated operating mode.** The catalogue requires a faster cadence (at least every 30 minutes, no more often than every five minutes for a 0.1 K change; timeout after 35 minutes). The current writer always uses the *exposed-radiator* cadence; do not rely on it to keep a covered-radiator lease alive. The separately opted-in external-temperature priority switch does not implement the covered-radiator cadence. |
+| Device attributes and diagnostics | **ZHA / separately installed overlay quirk**, not this HACS integration: certain Danfoss controls and readable statuses may be exposed as entities. Availability depends on the installed quirk and device. This integration adds its own room mean, source-count, window-state, and error diagnostics. |
+| §2.2 load balancing; §3.2 adaptive preheat | **Not implemented.** No room radiator-load mean (`0x4040`) is distributed and no preheat command (`0x42`) is coordinated. Averaging *temperature sensors* is not load balancing. |
+| §1.2 time/DST; §3.1 weekly schedules | **Not implemented by this integration.** It does not synchronize all six time/DST attributes or create, back up, and restore valve weekly schedules after power loss/OTA. A programming-mode entity exposed by a quirk is not a complete schedule manager. |
+| §2.1 setpoints; §2.7 boiler mode; §3.9 OTA | **Not managed by this integration.** It does not synchronize room setpoints, select heating-system mode, or perform firmware updates/rejoin recovery. Other ZHA/HA capabilities, if available, are separate. |
+
+The PDF also recommends avoiding unnecessary radio traffic (§1.1). The integration reacts to HA source-state changes and evaluates periodically, but suppresses insignificant/redundant writes; its HA entity-state readback is **not** proof of a Zigbee-cluster acknowledgement. This is deliberately a narrow, opt-in coordinator rather than a replacement for all gateway functions.
 
 ## Requirements
 
