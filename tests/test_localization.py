@@ -4,7 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from custom_components.danfoss_ally_coordinator.config_flow import _area_option_label
+from custom_components.danfoss_ally_coordinator.config_flow import (
+    _area_option_label,
+    _schema,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = ROOT / "custom_components" / "danfoss_ally_coordinator"
@@ -62,3 +65,50 @@ def test_english_project_documentation_and_service_fallback():
     assert "## Installation" in readme
     assert "## Safety" in readme
     assert "Refresh discovery and synchronization" in services
+
+
+def test_new_room_coordination_options_default_to_off():
+    room = SimpleNamespace(
+        name="Office",
+        area_id="office",
+        valves=(object(),),
+        temperature_entity_ids=(),
+        window_entity_ids=(),
+    )
+    schema = _schema((room,), {})
+    defaults = {
+        key.schema: key.default() for key in schema.schema if hasattr(key, "default")
+    }
+    assert defaults["sync_valve_windows"] is False
+    assert defaults["aggregation"] == "median"
+    assert "sync_parallel_setpoints" not in defaults
+
+
+def test_options_keep_only_available_areas_and_offer_exclusions():
+    room = SimpleNamespace(
+        name="Office",
+        area_id="office",
+        valves=(object(),),
+        temperature_entity_ids=(),
+        window_entity_ids=(),
+    )
+    schema = _schema(
+        (room,),
+        {"areas": ["office", "removed"], "excluded_entities": ["sensor.x"]},
+    )
+    defaults = {
+        key.schema: key.default() for key in schema.schema if hasattr(key, "default")
+    }
+    assert defaults["areas"] == ["office"]
+    assert defaults["excluded_entities"] == ["sensor.x"]
+
+
+def test_area_label_flags_incomplete_valves():
+    room = SimpleNamespace(
+        name="Bedroom",
+        valves=(),
+        incomplete_valves=(object(),),
+        temperature_entity_ids=("sensor.a",),
+        window_entity_ids=(),
+    )
+    assert _area_option_label(room) == "Bedroom (TRV 0 ⚠ 1 · T 1 · W 0)"

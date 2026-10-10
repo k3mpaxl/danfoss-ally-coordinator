@@ -2,3 +2,15 @@ refresh:
   name: Refresh discovery and synchronization
   description: Rediscover sources in configured areas and evaluate them immediately. Zigbee writes occur only when synchronization is explicitly enabled.
   fields: {}
+calibrate_local_sensor:
+  name: Calibrate a valve's local temperature sensor
+  description: Once, compare the selected valve's freshly reported temperature with fresh room sensors and write the bounded local sensor offset. Refused in covered-radiator mode. This does not run automatically.
+  fields:
+    entity_id:
+      name: Danfoss valve
+      description: Climate entity of a valve in a configured room.
+      required: true
+      selector:
+        entity:
+          domain: climate
+          integration: zha

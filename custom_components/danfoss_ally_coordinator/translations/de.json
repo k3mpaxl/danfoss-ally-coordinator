@@ -8,16 +8,28 @@
           "areas": "Zu koordinierende Bereiche",
           "enabled": "Zigbee-Synchronisierung aktivieren",
           "max_sensor_age_minutes": "Maximales Alter eines Temperaturwerts",
-          "prioritize_external_sensor": "Externen Temperatursensor am Danfoss-Ventil priorisieren",
           "sync_temperature": "Raumtemperatur an Ventile schreiben",
-          "sync_windows": "Fensterstatus an Ventile schreiben"
+          "sync_windows": "Fensterstatus an Ventile schreiben",
+          "sync_valve_windows": "Eigene Fenstererkennung der Ventile im Raum teilen",
+          "excluded_entities": "Ignorierte Quellen",
+          "aggregation": "Raumtemperatur aus mehreren Sensoren",
+          "startup_delay_minutes": "Wartezeit nach Home-Assistant-Start"
         },
         "data_description": {
-          "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche mit keinem passenden ZHA-Danfoss-Thermostat erscheinen nicht.",
+          "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche ohne passendes ZHA-Danfoss-Thermostat erscheinen nicht.",
           "enabled": "Ausgeschaltet berechnet und zeigt die Integration Mittelwert/Fensterstatus, schreibt aber keine Thermostatwerte.",
-          "max_sensor_age_minutes": "Ältere, unbekannte oder nichtnumerische Temperaturwerte werden vom Mittelwert ausgeschlossen."
+          "max_sensor_age_minutes": "Sensoren, die länger nichts gemeldet haben, nicht verfügbar oder nicht numerisch sind, werden vom Mittelwert ausgeschlossen.",
+          "sync_temperature": "Der Takt folgt dem Modus „abgedeckter Heizkörper“ jedes Ventils (nur gelesen): alle 5–25 Minuten bei abgedeckt, 30 Minuten bis 2¾ Stunden bei frei.",
+          "sync_windows": "Ein verfügbarer offener Kontakt öffnet den Raum; nicht verfügbare Kontakte werden ignoriert. Voraussetzung für das Teilen der Ventil-Fenstererkennung.",
+          "sync_valve_windows": "Erkennt ein Ventil selbst ein offenes Fenster, schließen alle Ventile im Bereich. Ventile im Modus „abgedeckter Heizkörper“ erkennen Fenster nicht selbst.",
+          "excluded_entities": "Entspricht den Quellen-Schaltern am jeweiligen Raumgerät: diese Sensoren oder Kontakte bleiben sichtbar, werden aber nicht genutzt, zum Beispiel eine Phantom-Öffnungs-Entity eines Bewegungsmelders.",
+          "aggregation": "Der Median ignoriert einen einzelnen Ausreißer, zum Beispiel einen Sensor nahe am Heizkörper; der Mittelwert mittelt alle frischen Sensoren.",
+          "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben."
         }
       }
+    },
+    "error": {
+      "no_areas_selected": "Mindestens einen Bereich auswählen."
     },
     "abort": {
       "already_configured": "Der Danfoss Ally Coordinator ist bereits eingerichtet.",
@@ -32,26 +44,87 @@
           "areas": "Zu koordinierende Bereiche",
           "enabled": "Zigbee-Synchronisierung aktivieren",
           "max_sensor_age_minutes": "Maximales Alter eines Temperaturwerts",
-          "prioritize_external_sensor": "Externen Temperatursensor am Danfoss-Ventil priorisieren",
           "sync_temperature": "Raumtemperatur an Ventile schreiben",
-          "sync_windows": "Fensterstatus an Ventile schreiben"
+          "sync_windows": "Fensterstatus an Ventile schreiben",
+          "sync_valve_windows": "Eigene Fenstererkennung der Ventile im Raum teilen",
+          "excluded_entities": "Ignorierte Quellen",
+          "aggregation": "Raumtemperatur aus mehreren Sensoren",
+          "startup_delay_minutes": "Wartezeit nach Home-Assistant-Start"
+        },
+        "data_description": {
+          "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche ohne passendes ZHA-Danfoss-Thermostat erscheinen nicht.",
+          "enabled": "Ausgeschaltet berechnet und zeigt die Integration Mittelwert/Fensterstatus, schreibt aber keine Thermostatwerte.",
+          "max_sensor_age_minutes": "Sensoren, die länger nichts gemeldet haben, nicht verfügbar oder nicht numerisch sind, werden vom Mittelwert ausgeschlossen.",
+          "sync_temperature": "Der Takt folgt dem Modus „abgedeckter Heizkörper“ jedes Ventils (nur gelesen): alle 5–25 Minuten bei abgedeckt, 30 Minuten bis 2¾ Stunden bei frei.",
+          "sync_windows": "Ein verfügbarer offener Kontakt öffnet den Raum; nicht verfügbare Kontakte werden ignoriert. Voraussetzung für das Teilen der Ventil-Fenstererkennung.",
+          "sync_valve_windows": "Erkennt ein Ventil selbst ein offenes Fenster, schließen alle Ventile im Bereich. Ventile im Modus „abgedeckter Heizkörper“ erkennen Fenster nicht selbst.",
+          "excluded_entities": "Entspricht den Quellen-Schaltern am jeweiligen Raumgerät: diese Sensoren oder Kontakte bleiben sichtbar, werden aber nicht genutzt, zum Beispiel eine Phantom-Öffnungs-Entity eines Bewegungsmelders.",
+          "aggregation": "Der Median ignoriert einen einzelnen Ausreißer, zum Beispiel einen Sensor nahe am Heizkörper; der Mittelwert mittelt alle frischen Sensoren.",
+          "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben."
         }
       }
+    },
+    "error": {
+      "no_areas_selected": "Mindestens einen Bereich auswählen."
+    },
+    "abort": {
+      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-eTRV0103 und den erforderlichen Steuer-Entities gefunden."
     }
   },
   "entity": {
     "sensor": {
-      "mean_temperature": {"name": "Mittlere Raumtemperatur"},
-      "temperature_sources": {"name": "Gültige Temperaturquellen"}
+      "mean_temperature": {
+        "name": "Raumtemperatur"
+      },
+      "temperature_sources": {
+        "name": "Gültige Temperaturquellen"
+      },
+      "local_temperature_gap": {
+        "name": "{valve} Abweichung zur Raumtemperatur"
+      }
     },
     "binary_sensor": {
-      "window_open": {"name": "Fenster geöffnet"}
+      "window_open": {
+        "name": "Fenster geöffnet"
+      }
+    },
+    "switch": {
+      "setpoint_sync": {
+        "name": "Solltemperatur synchronisieren"
+      },
+      "load_balancing": {
+        "name": "Lastverteilung"
+      }
     }
   },
   "services": {
     "refresh": {
       "name": "Erkennung und Synchronisierung aktualisieren",
       "description": "Erkennt Quellen in den konfigurierten Bereichen erneut und wertet sie sofort aus. Zigbee-Schreibvorgänge erfolgen nur bei ausdrücklich aktivierter Synchronisierung."
+    },
+    "calibrate_local_sensor": {
+      "name": "Lokalen Temperatursensor eines Ventils kalibrieren",
+      "description": "Einmalig einen begrenzten lokalen Offset aus aktuellen Raumsensoren und einer frisch gemeldeten Ventiltemperatur anwenden. Im Modus „abgedeckter Heizkörper“ abgelehnt.",
+      "fields": {
+        "entity_id": {
+          "name": "Danfoss-Ventil",
+          "description": "Climate-Entity eines Ventils in einem konfigurierten Raum."
+        }
+      }
+    }
+  },
+  "selector": {
+    "aggregation": {
+      "options": {
+        "median": "Median (robust gegen Ausreißer)",
+        "mean": "Mittelwert"
+      }
+    }
+  },
+  "issues": {
+    "incomplete_valve": {
+      "title": "{valve} in {area} wird nicht koordiniert",
+      "description": "ZHA stellt für das Danfoss-Ventil {valve} ({area}) nicht die Steuer-Entities bereit, die diese Integration braucht: {missing}. Das Ventil wird angezeigt, aber nie beschrieben.\n\nLösung: Ist eine Entity deaktiviert, aktivieren. Sonst Einstellungen → Geräte & Dienste → ZHA → {valve} öffnen, ⋮ → Neu konfigurieren wählen und Home Assistant neu starten. Das passiert, wenn ZHA die Danfoss-Attribute des Ventils beim Anlernen als nicht unterstützt markiert hat."
     }
   }
 }

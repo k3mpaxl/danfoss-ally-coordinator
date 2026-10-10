@@ -30,6 +30,14 @@ class RoomWindowOpenSensor(DanfossAllyRoomEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.WINDOW
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return the same aggregate state written to eligible Danfoss eTRVs."""
         return self.coordinator.statuses[self.room.area_id].window_open
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """List every discovered contact with its state or why it is not used."""
+        return {
+            **super().extra_state_attributes,
+            "contacts": self.coordinator.source_details(self.room)["window"],
+        }

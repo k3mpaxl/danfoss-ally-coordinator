@@ -1,12 +1,16 @@
 {
   "domain": "danfoss_ally_coordinator",
   "name": "Danfoss Ally Coordinator",
-  "version": "0.1.0",
-  "documentation": "https://github.com/zigpy/zha-device-handlers",
-  "issue_tracker": "https://github.com/zigpy/zha-device-handlers/issues",
+  "codeowners": [
+    "@k3mpaxl"
+  ],
   "config_flow": true,
-  "dependencies": ["zha"],
-  "codeowners": [],
+  "dependencies": [
+    "zha"
+  ],
+  "documentation": "https://github.com/k3mpaxl/danfoss-ally-coordinator",
   "integration_type": "hub",
-  "iot_class": "local_push"
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/k3mpaxl/danfoss-ally-coordinator/issues",
+  "version": "0.2.0"
 }

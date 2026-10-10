@@ -10,19 +10,27 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    AGGREGATION_MEAN,
+    AGGREGATION_MEDIAN,
+    CONF_AGGREGATION,
     CONF_AREAS,
     CONF_ENABLED,
+    CONF_EXCLUDED_ENTITIES,
     CONF_MAX_SENSOR_AGE_MINUTES,
-    CONF_PRIORITIZE_EXTERNAL_SENSOR,
+    CONF_STARTUP_DELAY_MINUTES,
     CONF_SYNC_TEMPERATURE,
+    CONF_SYNC_VALVE_WINDOWS,
     CONF_SYNC_WINDOWS,
+    DEFAULT_AGGREGATION,
     DEFAULT_ENABLED,
     DEFAULT_MAX_SENSOR_AGE_MINUTES,
-    DEFAULT_PRIORITIZE_EXTERNAL_SENSOR,
+    DEFAULT_STARTUP_DELAY_MINUTES,
     DEFAULT_SYNC_TEMPERATURE,
+    DEFAULT_SYNC_VALVE_WINDOWS,
     DEFAULT_SYNC_WINDOWS,
     DOMAIN,
     MAX_SENSOR_AGE_MINUTES,
+    MAX_STARTUP_DELAY_MINUTES,
     MIN_SENSOR_AGE_MINUTES,
     NAME,
 )
@@ -30,10 +38,16 @@ from .discovery import async_discover_rooms
 
 
 def _area_option_label(room) -> str:
-    """Show discovery counts without binding labels to one UI language."""
+    """Show discovery counts without binding labels to one UI language.
+
+    `⚠` counts valves that ZHA exposes without the required control entities.
+    """
+    incomplete = len(getattr(room, "incomplete_valves", ()))
     return (
-        f"{room.name} (TRV {len(room.valves)} · "
-        f"T {len(room.temperature_entity_ids)} · W {len(room.window_entity_ids)})"
+        f"{room.name} (TRV {len(room.valves)}"
+        + (f" ⚠ {incomplete}" if incomplete else "")
+        + f" · T {len(room.temperature_entity_ids)}"
+        + f" · W {len(room.window_entity_ids)})"
     )
 
 
@@ -46,11 +60,18 @@ def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
         )
         for room in rooms
     ]
+    available_area_ids = [room.area_id for room in rooms]
+    # A previously selected area may no longer contain a controllable valve.
+    selected_area_ids = [
+        area_id
+        for area_id in defaults.get(CONF_AREAS, available_area_ids)
+        if area_id in available_area_ids
+    ]
     return vol.Schema(
         {
             vol.Required(
                 CONF_AREAS,
-                default=defaults.get(CONF_AREAS, [room.area_id for room in rooms]),
+                default=selected_area_ids,
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=area_options, multiple=True)
             ),
@@ -73,12 +94,19 @@ def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
                 )
             ),
             vol.Required(
-                CONF_PRIORITIZE_EXTERNAL_SENSOR,
+                CONF_STARTUP_DELAY_MINUTES,
                 default=defaults.get(
-                    CONF_PRIORITIZE_EXTERNAL_SENSOR,
-                    DEFAULT_PRIORITIZE_EXTERNAL_SENSOR,
+                    CONF_STARTUP_DELAY_MINUTES, DEFAULT_STARTUP_DELAY_MINUTES
                 ),
-            ): selector.BooleanSelector(),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=MAX_STARTUP_DELAY_MINUTES,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="min",
+                )
+            ),
             vol.Required(
                 CONF_SYNC_TEMPERATURE,
                 default=defaults.get(CONF_SYNC_TEMPERATURE, DEFAULT_SYNC_TEMPERATURE),
@@ -87,8 +115,39 @@ def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SYNC_WINDOWS,
                 default=defaults.get(CONF_SYNC_WINDOWS, DEFAULT_SYNC_WINDOWS),
             ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_SYNC_VALVE_WINDOWS,
+                default=defaults.get(
+                    CONF_SYNC_VALVE_WINDOWS, DEFAULT_SYNC_VALVE_WINDOWS
+                ),
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_AGGREGATION,
+                default=defaults.get(CONF_AGGREGATION, DEFAULT_AGGREGATION),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[AGGREGATION_MEDIAN, AGGREGATION_MEAN],
+                    translation_key=CONF_AGGREGATION,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            vol.Optional(
+                CONF_EXCLUDED_ENTITIES,
+                default=list(defaults.get(CONF_EXCLUDED_ENTITIES, [])),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["sensor", "binary_sensor"], multiple=True
+                )
+            ),
         }
     )
+
+
+def _validate(user_input: dict[str, Any]) -> dict[str, str]:
+    """Reject a configuration that would coordinate nothing."""
+    if not user_input.get(CONF_AREAS):
+        return {CONF_AREAS: "no_areas_selected"}
+    return {}
 
 
 async def _discover_options(hass):
@@ -113,23 +172,26 @@ class DanfossAllyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         rooms = await _discover_options(self.hass)
         if not rooms:
             return self.async_abort(reason="no_supported_rooms")
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title=NAME, data=user_input)
-        return self.async_show_form(step_id="user", data_schema=_schema(rooms, {}))
+            if not (errors := _validate(user_input)):
+                return self.async_create_entry(title=NAME, data=user_input)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_schema(rooms, user_input or {}),
+            errors=errors,
+        )
 
     @staticmethod
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> DanfossAllyOptionsFlow:
         """Expose the same discovery-aware settings after setup."""
-        return DanfossAllyOptionsFlow(config_entry)
+        return DanfossAllyOptionsFlow()
 
 
 class DanfossAllyOptionsFlow(config_entries.OptionsFlow):
     """Reconfigure selected areas and opt in/out of radio writes."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self._entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -138,9 +200,14 @@ class DanfossAllyOptionsFlow(config_entries.OptionsFlow):
         rooms = await _discover_options(self.hass)
         if not rooms:
             return self.async_abort(reason="no_supported_rooms")
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-        defaults = {**self.config_entry.data, **self.config_entry.options}
+            if not (errors := _validate(user_input)):
+                # Keep settings made with the room switches.
+                return self.async_create_entry(
+                    title="", data={**self.config_entry.options, **user_input}
+                )
+        defaults = user_input or {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(
-            step_id="init", data_schema=_schema(rooms, defaults)
+            step_id="init", data_schema=_schema(rooms, defaults), errors=errors
         )

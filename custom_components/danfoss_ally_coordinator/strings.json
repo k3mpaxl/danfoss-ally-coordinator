@@ -8,16 +8,28 @@
           "areas": "Areas to coordinate",
           "enabled": "Enable Zigbee synchronization",
           "max_sensor_age_minutes": "Maximum age of a temperature value",
-          "prioritize_external_sensor": "Prioritize external temperature sensor on Danfoss valve",
           "sync_temperature": "Write room temperature to valves",
-          "sync_windows": "Write window status to valves"
+          "sync_windows": "Write window status to valves",
+          "sync_valve_windows": "Share valves' own open-window detection",
+          "excluded_entities": "Ignored sources",
+          "aggregation": "Room temperature from several sensors",
+          "startup_delay_minutes": "Wait after Home Assistant start"
         },
         "data_description": {
           "areas": "Only selected areas are monitored. Areas without a matching ZHA Danfoss thermostat are omitted.",
           "enabled": "When off, the integration calculates and displays mean/window state but never writes thermostat values.",
-          "max_sensor_age_minutes": "Older, unavailable, and non-numeric temperature values are excluded from the mean."
+          "max_sensor_age_minutes": "Sensors that have not reported for longer, or are unavailable or non-numeric, are excluded from the mean.",
+          "sync_temperature": "The cadence follows each valve's covered-radiator mode (read-only): every 5–25 minutes when covered, 30 minutes to 2¾ hours when exposed.",
+          "sync_windows": "Any available open contact opens the room; unavailable contacts are ignored. Required for valve-window sharing.",
+          "sync_valve_windows": "When one valve detects an open window itself, all valves in the area close. Valves in covered-radiator mode do not detect windows themselves.",
+          "excluded_entities": "Same as the source switches on each room device: these sensors or contacts stay listed but are not used, for example a motion sensor's phantom opening entity.",
+          "aggregation": "Median ignores a single outlier, such as a sensor near a radiator; mean averages all fresh sensors.",
+          "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart."
         }
       }
+    },
+    "error": {
+      "no_areas_selected": "Select at least one area."
     },
     "abort": {
       "already_configured": "Danfoss Ally Coordinator is already configured.",
@@ -32,26 +44,87 @@
           "areas": "Areas to coordinate",
           "enabled": "Enable Zigbee synchronization",
           "max_sensor_age_minutes": "Maximum age of a temperature value",
-          "prioritize_external_sensor": "Prioritize external temperature sensor on Danfoss valve",
           "sync_temperature": "Write room temperature to valves",
-          "sync_windows": "Write window status to valves"
+          "sync_windows": "Write window status to valves",
+          "sync_valve_windows": "Share valves' own open-window detection",
+          "excluded_entities": "Ignored sources",
+          "aggregation": "Room temperature from several sensors",
+          "startup_delay_minutes": "Wait after Home Assistant start"
+        },
+        "data_description": {
+          "areas": "Only selected areas are monitored. Areas without a matching ZHA Danfoss thermostat are omitted.",
+          "enabled": "When off, the integration calculates and displays mean/window state but never writes thermostat values.",
+          "max_sensor_age_minutes": "Sensors that have not reported for longer, or are unavailable or non-numeric, are excluded from the mean.",
+          "sync_temperature": "The cadence follows each valve's covered-radiator mode (read-only): every 5–25 minutes when covered, 30 minutes to 2¾ hours when exposed.",
+          "sync_windows": "Any available open contact opens the room; unavailable contacts are ignored. Required for valve-window sharing.",
+          "sync_valve_windows": "When one valve detects an open window itself, all valves in the area close. Valves in covered-radiator mode do not detect windows themselves.",
+          "excluded_entities": "Same as the source switches on each room device: these sensors or contacts stay listed but are not used, for example a motion sensor's phantom opening entity.",
+          "aggregation": "Median ignores a single outlier, such as a sensor near a radiator; mean averages all fresh sensors.",
+          "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart."
         }
       }
+    },
+    "error": {
+      "no_areas_selected": "Select at least one area."
+    },
+    "abort": {
+      "no_supported_rooms": "No area with a supported ZHA Danfoss eTRV0103 and required control entities was found."
     }
   },
   "entity": {
     "sensor": {
-      "mean_temperature": {"name": "Mean room temperature"},
-      "temperature_sources": {"name": "Valid temperature sources"}
+      "mean_temperature": {
+        "name": "Room temperature"
+      },
+      "temperature_sources": {
+        "name": "Valid temperature sources"
+      },
+      "local_temperature_gap": {
+        "name": "{valve} temperature gap"
+      }
     },
     "binary_sensor": {
-      "window_open": {"name": "Window open"}
+      "window_open": {
+        "name": "Window open"
+      }
+    },
+    "switch": {
+      "setpoint_sync": {
+        "name": "Synchronize target temperature"
+      },
+      "load_balancing": {
+        "name": "Load balancing"
+      }
     }
   },
   "services": {
     "refresh": {
       "name": "Refresh discovery and synchronization",
       "description": "Rediscover sources in the configured areas and evaluate them immediately. Zigbee writes occur only when synchronization is explicitly enabled."
+    },
+    "calibrate_local_sensor": {
+      "name": "Calibrate a valve's local temperature sensor",
+      "description": "Once, apply a bounded local offset from fresh room sensors and a freshly reported valve temperature. Refused in covered-radiator mode.",
+      "fields": {
+        "entity_id": {
+          "name": "Danfoss valve",
+          "description": "Climate entity of a valve in a configured room."
+        }
+      }
+    }
+  },
+  "selector": {
+    "aggregation": {
+      "options": {
+        "median": "Median (robust against outliers)",
+        "mean": "Mean"
+      }
+    }
+  },
+  "issues": {
+    "incomplete_valve": {
+      "title": "{valve} in {area} is not coordinated",
+      "description": "ZHA does not provide the control entities this integration needs for the Danfoss valve {valve} ({area}): {missing}. The valve is shown but never written.\n\nFix: if an entity is disabled, enable it. Otherwise open Settings → Devices & services → ZHA → {valve}, choose ⋮ → Reconfigure, then restart Home Assistant. This happens when ZHA marked the valve's Danfoss attributes as unsupported during pairing."
     }
   }
 }
