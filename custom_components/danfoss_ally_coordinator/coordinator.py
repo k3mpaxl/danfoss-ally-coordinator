@@ -589,6 +589,38 @@ class RoomCoordinator:
                 allow_writes=self._started,
             )
 
+    def known_entity_ids(self) -> frozenset[str]:
+        """Every source and valve entity the current room discovery relies on."""
+        return (
+            frozenset(
+                entity_id
+                for room in self.rooms
+                for entity_id in (
+                    *room.temperature_entity_ids,
+                    *room.window_entity_ids,
+                    *(
+                        value
+                        for valve in room.valves
+                        for value in (
+                            valve.temperature_entity_id,
+                            valve.window_entity_id,
+                            valve.covered_entity_id,
+                            valve.climate_entity_id,
+                            valve.window_detection_entity_id,
+                            valve.calibration_entity_id,
+                            valve.load_estimate_entity_id,
+                            valve.load_room_mean_entity_id,
+                            valve.load_balancing_enable_entity_id,
+                            valve.adaptation_status_entity_id,
+                            valve.error_entity_id,
+                        )
+                        if value
+                    ),
+                )
+            )
+            | self.excluded_entity_ids
+        )
+
     def live_settings(self) -> dict[str, list[str]]:
         """The room-switch settings, in the form stored in the entry options."""
         return {

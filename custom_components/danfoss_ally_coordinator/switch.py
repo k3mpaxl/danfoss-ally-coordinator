@@ -14,6 +14,7 @@ from . import DanfossAllyConfigEntry
 from .coordinator import RoomCoordinator
 from .discovery import RoomDefinition
 from .entity import DanfossAllyRoomEntity
+from .entity_refs import registry_id
 
 KIND_TEMPERATURE = "temperature"
 KIND_WINDOW = "window"
@@ -125,7 +126,10 @@ class RoomSourceSwitch(DanfossAllyRoomEntity, SwitchEntity):
         super().__init__(coordinator, room)
         self.source_entity_id = source_entity_id
         self.kind = kind
-        self._attr_unique_id = f"{room.area_id}_source_{source_entity_id}"
+        # Keyed by registry ID so a renamed source keeps its switch.
+        self._attr_unique_id = (
+            f"{room.area_id}_source_{registry_id(coordinator.hass, source_entity_id)}"
+        )
         self._update_from_coordinator()
 
     async def async_added_to_hass(self) -> None:

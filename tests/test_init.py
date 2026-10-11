@@ -320,7 +320,9 @@ async def test_config_flow_setup_services_options_and_unload(
         "switch", "turn_off", {"entity_id": switches[ids["contact"]]}, blocking=True
     )
     await hass.async_block_till_done()
-    assert entry.options["excluded_entities"] == [ids["contact"]]
+    # Stored by registry ID, so renaming the entity ID does not lose the setting.
+    contact_registry_id = er.async_get(hass).async_get(ids["contact"]).id
+    assert entry.options["excluded_entities"] == [contact_registry_id]
     window = hass.states.get(window_id)
     assert window.state == "unknown"
     assert window.attributes["contacts"] == [
@@ -515,3 +517,53 @@ async def test_incomplete_valve_raises_a_repair_issue(
         ir.async_get(hass).async_get_issue(DOMAIN, f"incomplete_valve_{bare.id}")
         is None
     )
+
+
+async def test_renamed_source_keeps_its_setting_and_switch(
+    hass: HomeAssistant, office
+) -> None:
+    """Entity-ID migrations must not lose ignored sources or source switches."""
+    ids = office["ids"]
+    registry = er.async_get(hass)
+    phantom_id = registry.async_get(ids["phantom"]).id
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": False,
+            "max_sensor_age_minutes": 120,
+        },
+        # Legacy form: an entity ID instead of a registry ID.
+        options={"excluded_entities": [ids["phantom"]]},
+    )
+    entry.add_to_hass(hass)
+    # A pre-release switch keyed by entity ID is migrated, not duplicated.
+    legacy = registry.async_get_or_create(
+        "switch",
+        DOMAIN,
+        f"{office['area_id']}_source_{ids['phantom']}",
+        config_entry=entry,
+        suggested_object_id="legacy_phantom_switch",
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get(legacy.entity_id).unique_id == (
+        f"{office['area_id']}_source_{phantom_id}"
+    )
+
+    registry.async_update_entity(ids["phantom"], new_entity_id="sensor.office_shelf")
+    hass.states.async_set("sensor.office_shelf", "30.0", CELSIUS)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
+    await hass.async_block_till_done()
+
+    coordinator = entry.runtime_data
+    assert "sensor.office_shelf" in coordinator.excluded_entity_ids
+    assert "sensor.office_shelf" in coordinator.rooms[0].temperature_entity_ids
+    switches = [
+        e
+        for e in registry.entities.values()
+        if e.platform == DOMAIN and e.unique_id.endswith(f"_source_{phantom_id}")
+    ]
+    assert len(switches) == 1
+    assert hass.states.get(switches[0].entity_id).state == "off"

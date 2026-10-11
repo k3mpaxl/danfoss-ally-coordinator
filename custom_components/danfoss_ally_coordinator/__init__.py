@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -11,6 +13,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import (
+    Event,
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
@@ -19,7 +22,9 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -47,9 +52,11 @@ from .const import (
 )
 from .coordinator import RoomCoordinator
 from .discovery import RoomDefinition, async_discover_rooms
+from .entity_refs import to_entity_ids, to_registry_ids
 from .store import SyncStateStore
 
 _LOGGER = logging.getLogger(__name__)
+RENAME_RELOAD_COOLDOWN = 10
 PLATFORMS: tuple[Platform, ...] = (
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
@@ -117,6 +124,7 @@ async def async_setup(hass: HomeAssistant, _config: dict[str, Any]) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) -> bool:
     """Set up one explicitly selected set of discovered HA areas."""
+    _migrate_stored_references(hass, entry)
     configuration = {**entry.data, **entry.options}
     selected_area_ids = set(configuration[CONF_AREAS])
     rooms = await async_discover_rooms(hass, selected_area_ids)
@@ -155,7 +163,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) 
                 )
             )
         ),
-        **_live_settings(configuration),
+        **_live_settings(hass, configuration),
         sync_records=await store.async_load(),
         sync_state_store=store,
     )
@@ -165,16 +173,103 @@ async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) 
 
     @callback
     def _persist_live_settings(settings: dict[str, list[str]]) -> None:
-        """Store room-switch settings in the entry options."""
+        """Store room-switch settings in the entry options (sources by registry ID)."""
+        settings = {
+            **settings,
+            CONF_EXCLUDED_ENTITIES: to_registry_ids(
+                hass, settings[CONF_EXCLUDED_ENTITIES]
+            ),
+        }
         hass.config_entries.async_update_entry(
             entry, options={**entry.options, **settings}
         )
 
     coordinator.on_live_settings_changed = _persist_live_settings
+    await _async_migrate_source_unique_ids(hass, entry)
     await coordinator.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    entry.async_on_unload(_async_track_renamed_entities(hass, entry, coordinator))
     return True
+
+
+@callback
+def _migrate_stored_references(
+    hass: HomeAssistant, entry: DanfossAllyConfigEntry
+) -> None:
+    """Rewrite ignored sources stored as entity IDs to registry IDs (once)."""
+    for source in (entry.data, entry.options):
+        stored = source.get(CONF_EXCLUDED_ENTITIES)
+        if stored is None:
+            continue
+        migrated = to_registry_ids(hass, stored)
+        if migrated != sorted(stored):
+            key = "data" if source is entry.data else "options"
+            hass.config_entries.async_update_entry(
+                entry, **{key: {**source, CONF_EXCLUDED_ENTITIES: migrated}}
+            )
+
+
+async def _async_migrate_source_unique_ids(
+    hass: HomeAssistant, entry: DanfossAllyConfigEntry
+) -> None:
+    """Re-key source switches from entity IDs to registry IDs (0.2.0 pre-release)."""
+    registry = er.async_get(hass)
+
+    @callback
+    def _migrate(entity_entry: er.RegistryEntry) -> dict[str, str] | None:
+        match = re.fullmatch(
+            r"(.+)_source_((?:sensor|binary_sensor)\..+)", entity_entry.unique_id
+        )
+        if match and (source := registry.async_get(match.group(2))):
+            return {"new_unique_id": f"{match.group(1)}_source_{source.id}"}
+        return None
+
+    await er.async_migrate_entries(hass, entry.entry_id, _migrate)
+
+
+@callback
+def _async_track_renamed_entities(
+    hass: HomeAssistant, entry: DanfossAllyConfigEntry, coordinator: RoomCoordinator
+) -> Callable[[], None]:
+    """Reload once after a used entity got a new entity ID or another area.
+
+    Rooms are discovered by entity ID; a reload picks up the new IDs while the
+    stored settings follow by registry ID.
+    """
+
+    pending: list[Callable[[], None]] = []
+
+    @callback
+    def _reload(_now) -> None:
+        pending.clear()
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+
+    @callback
+    def _handle(event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        data = event.data
+        if data["action"] != "update":
+            return
+        changes = data.get("changes", {})
+        old_entity_id = data.get("old_entity_id", data["entity_id"])
+        if ("entity_id" in changes or "area_id" in changes) and (
+            old_entity_id in coordinator.known_entity_ids()
+            or data["entity_id"] in coordinator.known_entity_ids()
+        ):
+            if not pending:
+                # One reload for a whole batch of renames.
+                pending.append(async_call_later(hass, RENAME_RELOAD_COOLDOWN, _reload))
+
+    unsubscribe = hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, _handle)
+
+    @callback
+    def _stop() -> None:
+        unsubscribe()
+        for cancel in pending:
+            cancel()
+        pending.clear()
+
+    return _stop
 
 
 @callback
@@ -217,10 +312,14 @@ def _reload_relevant(entry: DanfossAllyConfigEntry) -> dict[str, Any]:
     return configuration
 
 
-def _live_settings(configuration: dict[str, Any]) -> dict[str, frozenset[str]]:
+def _live_settings(
+    hass: HomeAssistant, configuration: dict[str, Any]
+) -> dict[str, frozenset[str]]:
     """Map stored room-switch settings to coordinator arguments."""
     return {
-        "excluded_entity_ids": frozenset(configuration.get(CONF_EXCLUDED_ENTITIES, ())),
+        "excluded_entity_ids": to_entity_ids(
+            hass, configuration.get(CONF_EXCLUDED_ENTITIES, ())
+        ),
         "setpoint_sync_disabled_areas": frozenset(
             configuration.get(CONF_SETPOINT_SYNC_DISABLED_AREAS, ())
         ),
@@ -236,7 +335,7 @@ async def _async_options_updated(
     """Apply room-switch settings live; reload for any other changed setting."""
     coordinator = entry.runtime_data
     if _reload_relevant(entry) == coordinator.configuration:
-        settings = _live_settings({**entry.data, **entry.options})
+        settings = _live_settings(hass, {**entry.data, **entry.options})
         await coordinator.async_apply_live_settings(
             excluded=settings["excluded_entity_ids"],
             setpoint_sync_disabled=settings["setpoint_sync_disabled_areas"],

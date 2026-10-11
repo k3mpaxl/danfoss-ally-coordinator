@@ -35,6 +35,7 @@ from .const import (
     NAME,
 )
 from .discovery import async_discover_rooms
+from .entity_refs import to_entity_ids, to_registry_ids
 
 
 def _area_option_label(room) -> str:
@@ -143,6 +144,28 @@ def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def _store_references(hass, user_input: dict[str, Any]) -> dict[str, Any]:
+    """Persist ignored sources by registry ID so entity renames keep them."""
+    if CONF_EXCLUDED_ENTITIES not in user_input:
+        return user_input
+    return {
+        **user_input,
+        CONF_EXCLUDED_ENTITIES: to_registry_ids(
+            hass, user_input[CONF_EXCLUDED_ENTITIES]
+        ),
+    }
+
+
+def _show_references(hass, configuration: dict[str, Any]) -> dict[str, Any]:
+    """Show stored registry IDs as the current entity IDs in the form."""
+    return {
+        **configuration,
+        CONF_EXCLUDED_ENTITIES: sorted(
+            to_entity_ids(hass, configuration.get(CONF_EXCLUDED_ENTITIES, ()))
+        ),
+    }
+
+
 def _validate(user_input: dict[str, Any]) -> dict[str, str]:
     """Reject a configuration that would coordinate nothing."""
     if not user_input.get(CONF_AREAS):
@@ -175,7 +198,9 @@ class DanfossAllyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             if not (errors := _validate(user_input)):
-                return self.async_create_entry(title=NAME, data=user_input)
+                return self.async_create_entry(
+                    title=NAME, data=_store_references(self.hass, user_input)
+                )
         return self.async_show_form(
             step_id="user",
             data_schema=_schema(rooms, user_input or {}),
@@ -205,9 +230,15 @@ class DanfossAllyOptionsFlow(config_entries.OptionsFlow):
             if not (errors := _validate(user_input)):
                 # Keep settings made with the room switches.
                 return self.async_create_entry(
-                    title="", data={**self.config_entry.options, **user_input}
+                    title="",
+                    data={
+                        **self.config_entry.options,
+                        **_store_references(self.hass, user_input),
+                    },
                 )
-        defaults = user_input or {**self.config_entry.data, **self.config_entry.options}
+        defaults = user_input or _show_references(
+            self.hass, {**self.config_entry.data, **self.config_entry.options}
+        )
         return self.async_show_form(
             step_id="init", data_schema=_schema(rooms, defaults), errors=errors
         )
