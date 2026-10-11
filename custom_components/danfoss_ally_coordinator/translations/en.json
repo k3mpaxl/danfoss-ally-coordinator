@@ -13,7 +13,8 @@
           "sync_valve_windows": "Share valves' own open-window detection",
           "excluded_entities": "Ignored sources",
           "aggregation": "Room temperature from several sensors",
-          "startup_delay_minutes": "Wait after Home Assistant start"
+          "startup_delay_minutes": "Wait after Home Assistant start",
+          "heat_source": "Heat available from"
         },
         "data_description": {
           "areas": "Only selected areas are monitored. Areas without a matching ZHA Danfoss thermostat are omitted.",
@@ -24,7 +25,8 @@
           "sync_valve_windows": "When one valve detects an open window itself, all valves in the area close. Valves in covered-radiator mode do not detect windows themselves.",
           "excluded_entities": "Same as the source switches on each room device: these sensors or contacts stay listed but are not used, for example a motion sensor's phantom opening entity.",
           "aggregation": "Median ignores a single outlier, such as a sensor near a radiator; mean averages all fresh sensors.",
-          "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart."
+          "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart.",
+          "heat_source": "Optional: a binary sensor that is on while the heating system supplies heat, for example the ECL Comfort 310's 'Heat available'. It is forwarded to every coordinated valve as HeatAvailable (Danfoss catalogue §2.7): without heat the valves switch to boiler mode and stop requesting heat the system is not supplying. Empty = not used."
         }
       }
     },
@@ -49,7 +51,8 @@
           "sync_valve_windows": "Share valves' own open-window detection",
           "excluded_entities": "Ignored sources",
           "aggregation": "Room temperature from several sensors",
-          "startup_delay_minutes": "Wait after Home Assistant start"
+          "startup_delay_minutes": "Wait after Home Assistant start",
+          "heat_source": "Heat available from"
         },
         "data_description": {
           "areas": "Only selected areas are monitored. Areas without a matching ZHA Danfoss thermostat are omitted.",
@@ -60,7 +63,8 @@
           "sync_valve_windows": "When one valve detects an open window itself, all valves in the area close. Valves in covered-radiator mode do not detect windows themselves.",
           "excluded_entities": "Same as the source switches on each room device: these sensors or contacts stay listed but are not used, for example a motion sensor's phantom opening entity.",
           "aggregation": "Median ignores a single outlier, such as a sensor near a radiator; mean averages all fresh sensors.",
-          "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart."
+          "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart.",
+          "heat_source": "Optional: a binary sensor that is on while the heating system supplies heat, for example the ECL Comfort 310's 'Heat available'. It is forwarded to every coordinated valve as HeatAvailable (Danfoss catalogue §2.7): without heat the valves switch to boiler mode and stop requesting heat the system is not supplying. Empty = not used."
         }
       }
     },

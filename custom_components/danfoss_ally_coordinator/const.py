@@ -14,6 +14,10 @@ CONF_SYNC_WINDOWS = "sync_windows"
 CONF_SYNC_VALVE_WINDOWS = "sync_valve_windows"
 CONF_AGGREGATION = "aggregation"
 CONF_STARTUP_DELAY_MINUTES = "startup_delay_minutes"
+# A binary entity telling whether the heating system supplies heat (catalogue
+# §2.7 HeatAvailable), e.g. the ECL Comfort 310's "Heat available". Stored by
+# entity registry ID.
+CONF_HEAT_SOURCE = "heat_source"
 
 # Settings changed by the room switches; applied live without a reload.
 CONF_EXCLUDED_ENTITIES = "excluded_entities"
@@ -48,3 +52,7 @@ STORAGE_KEY_PREFIX = f"{DOMAIN}.sync_state"
 # The 5-minute evaluation is local. Vendor-aware write suppression happens in
 # planner.py, so it does not translate into a five-minute radio write.
 LOCAL_EVALUATION_INTERVAL = timedelta(minutes=5)
+
+# HeatAvailable is re-sent even when unchanged, so a valve that missed a write
+# or rejoined still knows. "False" keeps the valve in boiler mode for 48 h.
+HEAT_AVAILABLE_REFRESH = timedelta(hours=3)

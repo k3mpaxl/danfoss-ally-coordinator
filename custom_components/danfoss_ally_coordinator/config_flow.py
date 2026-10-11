@@ -16,6 +16,7 @@ from .const import (
     CONF_AREAS,
     CONF_ENABLED,
     CONF_EXCLUDED_ENTITIES,
+    CONF_HEAT_SOURCE,
     CONF_MAX_SENSOR_AGE_MINUTES,
     CONF_STARTUP_DELAY_MINUTES,
     CONF_SYNC_TEMPERATURE,
@@ -140,29 +141,43 @@ def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
                     domain=["sensor", "binary_sensor"], multiple=True
                 )
             ),
+            vol.Optional(
+                CONF_HEAT_SOURCE,
+                description={"suggested_value": defaults.get(CONF_HEAT_SOURCE)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["binary_sensor", "switch", "input_boolean"]
+                )
+            ),
         }
     )
 
 
 def _store_references(hass, user_input: dict[str, Any]) -> dict[str, Any]:
-    """Persist ignored sources by registry ID so entity renames keep them."""
-    if CONF_EXCLUDED_ENTITIES not in user_input:
-        return user_input
-    return {
-        **user_input,
-        CONF_EXCLUDED_ENTITIES: to_registry_ids(
+    """Persist entity references by registry ID so entity renames keep them.
+
+    A cleared heat source is stored as ``None``: the form leaves an emptied
+    optional field out, which would otherwise keep the old choice.
+    """
+    stored = {**user_input, CONF_HEAT_SOURCE: None}
+    if source := user_input.get(CONF_HEAT_SOURCE):
+        stored[CONF_HEAT_SOURCE] = to_registry_ids(hass, [source])[0]
+    if CONF_EXCLUDED_ENTITIES in user_input:
+        stored[CONF_EXCLUDED_ENTITIES] = to_registry_ids(
             hass, user_input[CONF_EXCLUDED_ENTITIES]
-        ),
-    }
+        )
+    return stored
 
 
 def _show_references(hass, configuration: dict[str, Any]) -> dict[str, Any]:
     """Show stored registry IDs as the current entity IDs in the form."""
+    source = configuration.get(CONF_HEAT_SOURCE)
     return {
         **configuration,
         CONF_EXCLUDED_ENTITIES: sorted(
             to_entity_ids(hass, configuration.get(CONF_EXCLUDED_ENTITIES, ()))
         ),
+        CONF_HEAT_SOURCE: next(iter(to_entity_ids(hass, [source]))) if source else None,
     }
 
 

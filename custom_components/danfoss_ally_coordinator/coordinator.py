@@ -30,6 +30,7 @@ from .const import (
     CONF_LOAD_BALANCING_AREAS,
     CONF_SETPOINT_SYNC_DISABLED_AREAS,
     DEFAULT_AGGREGATION,
+    HEAT_AVAILABLE_REFRESH,
     LOCAL_EVALUATION_INTERVAL,
 )
 from .discovery import RoomDefinition, ValveTarget
@@ -135,6 +136,7 @@ class RoomCoordinator:
         setpoint_sync_disabled_areas: frozenset[str] = frozenset(),
         load_balancing_areas: frozenset[str] = frozenset(),
         startup_delay: timedelta = timedelta(0),
+        heat_source_entity_id: str | None = None,
         sync_records: dict[str, SyncRecord] | None = None,
         sync_state_store: SyncStateStore | None = None,
     ) -> None:
@@ -157,6 +159,10 @@ class RoomCoordinator:
             None
         )
         self._load_sent_at: dict[str, datetime] = {}
+        # Catalogue §2.7: the system-wide "heat available" source and when each
+        # valve last confirmed the forwarded value.
+        self.heat_source_entity_id = heat_source_entity_id
+        self._heat_sent_at: dict[str, datetime] = {}
         self.startup_delay = startup_delay
         # Set after a Home Assistant restart: values from before it are unconfirmed.
         self._ha_started_at: datetime | None = None
@@ -195,7 +201,7 @@ class RoomCoordinator:
                     if valve.covered_entity_id
                 ),
             )
-        )
+        ) | frozenset(filter(None, (self.heat_source_entity_id,)))
         self._climate_entity_ids = frozenset(
             valve.climate_entity_id
             for room in self.rooms
@@ -359,6 +365,15 @@ class RoomCoordinator:
     def _confirmed_since_restart(self, state: State) -> bool:
         """After a restart, only values reported since then show a live source."""
         return self._ha_started_at is None or observed_at(state) >= self._ha_started_at
+
+    def heat_available(self) -> bool | None:
+        """Whether the heating system supplies heat; None without a usable source."""
+        if not self.heat_source_entity_id:
+            return None
+        state = self.hass.states.get(self.heat_source_entity_id)
+        if state is None or state.state not in (STATE_ON, STATE_OFF):
+            return None
+        return state.state == STATE_ON
 
     def valve_covered(self, valve: ValveTarget) -> bool | None:
         """Read the valve's covered-radiator mode; this integration never writes it."""
@@ -613,12 +628,14 @@ class RoomCoordinator:
                             valve.load_balancing_enable_entity_id,
                             valve.adaptation_status_entity_id,
                             valve.error_entity_id,
+                            valve.heat_available_entity_id,
                         )
                         if value
                     ),
                 )
             )
             | self.excluded_entity_ids
+            | frozenset(filter(None, (self.heat_source_entity_id,)))
         )
 
     def live_settings(self) -> dict[str, list[str]]:
@@ -936,6 +953,7 @@ class RoomCoordinator:
             self._notify_listeners()
             return
 
+        heat = self.heat_available()
         for valve in room.valves:
             if not self.valve_online(valve):
                 # Not reachable (e.g. mesh still re-forming): retry next round.
@@ -944,6 +962,8 @@ class RoomCoordinator:
                 await self._async_push_temperature(status, valve, mean, now)
             if self.sync_windows and window_open is not None:
                 await self._async_push_window(status, valve, window_open)
+            if heat is not None and valve.heat_available_entity_id:
+                await self._async_push_heat_available(status, valve, heat, now)
 
         if self.load_balancing_active(room):
             await self._async_balance_load(room, status, now)
@@ -1189,6 +1209,48 @@ class RoomCoordinator:
             )
             _LOGGER.warning("Danfoss window readback mismatch: %s", status.last_error)
 
+    async def _async_push_heat_available(
+        self, status: RoomStatus, valve: ValveTarget, available: bool, now: datetime
+    ) -> None:
+        """Forward the system's heat availability to one valve (catalogue §2.7).
+
+        Written on every change and re-sent after HEAT_AVAILABLE_REFRESH, so a
+        valve that missed a write or rejoined the network learns it again.
+        """
+        entity_id = valve.heat_available_entity_id
+        assert entity_id is not None
+        desired_state = STATE_ON if available else STATE_OFF
+        current_state = self.hass.states.get(entity_id)
+        sent_at = self._heat_sent_at.get(entity_id)
+        if (
+            current_state is not None
+            and current_state.state == desired_state
+            and sent_at is not None
+            and now - sent_at < HEAT_AVAILABLE_REFRESH
+        ):
+            return
+        try:
+            await self.hass.services.async_call(
+                "switch",
+                SERVICE_TURN_ON if available else SERVICE_TURN_OFF,
+                {ATTR_ENTITY_ID: entity_id},
+                blocking=True,
+            )
+        except HomeAssistantError as err:
+            status.last_error = f"{entity_id}: {err}"
+            _LOGGER.warning("Danfoss heat-available write failed: %s", err)
+            return
+        readback = self.hass.states.get(entity_id)
+        if readback is None or readback.state != desired_state:
+            status.last_error = (
+                f"{entity_id}: heat-available readback mismatch "
+                f"(expected {desired_state}, "
+                f"got {readback.state if readback else None})"
+            )
+            _LOGGER.warning("Danfoss heat-available mismatch: %s", status.last_error)
+            return
+        self._heat_sent_at[entity_id] = now
+
     def valve_diagnostics(self, room: RoomDefinition) -> list[dict[str, Any]]:
         """Describe each valve's mode and last confirmed temperature write."""
         diagnostics: list[dict[str, Any]] = []
@@ -1200,6 +1262,7 @@ class RoomCoordinator:
                     "climate": valve.climate_entity_id,
                     "external_temperature": valve.temperature_entity_id,
                     "external_window": valve.window_entity_id,
+                    "heat_available": valve.heat_available_entity_id,
                     "online": self.valve_online(valve),
                     "errors": self.valve_errors(valve),
                     "mode": None

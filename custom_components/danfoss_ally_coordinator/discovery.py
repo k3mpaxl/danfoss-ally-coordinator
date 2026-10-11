@@ -20,6 +20,7 @@ LOAD_ROOM_MEAN_SUFFIX = "-load_room_mean"
 LOAD_BALANCING_ENABLE_SUFFIX = "-load_balancing_enable"
 ADAPTATION_STATUS_SUFFIX = "-adaptation_run_status"
 ERROR_CODE_SUFFIX = "-sw_error_code"
+HEAT_AVAILABLE_SUFFIX = "-heat_available"
 # Entities ZHA's built-in Danfoss quirk must expose before a valve is controlled.
 REQUIRED_ENTITIES = (
     ("number", TEMPERATURE_UNIQUE_SUFFIX),
@@ -73,6 +74,8 @@ class ValveTarget:
     load_balancing_enable_entity_id: str | None = None
     adaptation_status_entity_id: str | None = None
     error_entity_id: str | None = None
+    # Catalogue §2.7: whether the heating system supplies heat (0x4030).
+    heat_available_entity_id: str | None = None
 
     @property
     def supports_load_balancing(self) -> bool:
@@ -196,6 +199,7 @@ def _find_target(
         optional("switch", LOAD_BALANCING_ENABLE_SUFFIX),
         optional("sensor", ADAPTATION_STATUS_SUFFIX),
         optional("sensor", ERROR_CODE_SUFFIX),
+        optional("switch", HEAT_AVAILABLE_SUFFIX),
     )
 
 

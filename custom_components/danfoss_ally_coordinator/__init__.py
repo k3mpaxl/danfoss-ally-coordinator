@@ -22,6 +22,7 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
@@ -33,6 +34,7 @@ from .const import (
     CONF_AREAS,
     CONF_ENABLED,
     CONF_EXCLUDED_ENTITIES,
+    CONF_HEAT_SOURCE,
     CONF_LOAD_BALANCING_AREAS,
     CONF_MAX_SENSOR_AGE_MINUTES,
     CONF_SETPOINT_SYNC_DISABLED_AREAS,
@@ -163,6 +165,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) 
                 )
             )
         ),
+        heat_source_entity_id=_heat_source(hass, configuration),
         **_live_settings(hass, configuration),
         sync_records=await store.async_load(),
         sync_state_store=store,
@@ -188,9 +191,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) 
     await _async_migrate_source_unique_ids(hass, entry)
     await coordinator.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_remove_orphans(hass, entry, coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     entry.async_on_unload(_async_track_renamed_entities(hass, entry, coordinator))
     return True
+
+
+def _heat_source(hass: HomeAssistant, configuration: dict[str, Any]) -> str | None:
+    """Resolve the stored heat source (registry ID) to its current entity ID."""
+    if not (source := configuration.get(CONF_HEAT_SOURCE)):
+        return None
+    return next(iter(to_entity_ids(hass, [source])))
+
+
+@callback
+def _async_remove_orphans(
+    hass: HomeAssistant, entry: DanfossAllyConfigEntry, coordinator: RoomCoordinator
+) -> None:
+    """Drop the devices and entities of rooms that are no longer coordinated.
+
+    A room that was deselected, or whose area was replaced (a new area ID after
+    a rename), leaves its device and entities behind. Every entity of this
+    integration is keyed by its room's area ID. Sources of a current room are
+    left alone: one whose integration is still loading must keep its settings.
+    """
+    prefixes = tuple(f"{room.area_id}_" for room in coordinator.rooms)
+    entity_registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(
+        entity_registry, entry.entry_id
+    ):
+        if not entity_entry.unique_id.startswith(prefixes):
+            entity_registry.async_remove(entity_entry.entity_id)
+    current_areas = {room.area_id for room in coordinator.rooms}
+    device_registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+        areas = {value for domain, value in device.identifiers if domain == DOMAIN}
+        if areas and not areas & current_areas:
+            device_registry.async_remove_device(device.id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    entry: DanfossAllyConfigEntry,
+    device: dr.DeviceEntry,
+) -> bool:
+    """Allow deleting a room device only once its room is no longer coordinated."""
+    coordinator: RoomCoordinator | None = getattr(entry, "runtime_data", None)
+    current = {room.area_id for room in coordinator.rooms} if coordinator else set()
+    return not any(
+        domain == DOMAIN and value in current for domain, value in device.identifiers
+    )
 
 
 @callback

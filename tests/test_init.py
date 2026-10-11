@@ -567,3 +567,82 @@ async def test_renamed_source_keeps_its_setting_and_switch(
     ]
     assert len(switches) == 1
     assert hass.states.get(switches[0].entity_id).state == "off"
+
+
+async def test_rooms_no_longer_coordinated_are_removed(
+    hass: HomeAssistant, office
+) -> None:
+    """A room whose area was replaced leaves no device or entity behind."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": False,
+            "max_sensor_age_minutes": 120,
+        },
+    )
+    entry.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    old_device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "old_area")},
+        name="Danfoss Ally – Office",
+    )
+    old_entity = er.async_get(hass).async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "old_area_mean_temperature",
+        config_entry=entry,
+        device_id=old_device.id,
+    )
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert er.async_get(hass).async_get(old_entity.entity_id) is None
+    assert devices.async_get(old_device.id) is None
+    remaining = dr.async_entries_for_config_entry(devices, entry.entry_id)
+    assert [device.identifiers for device in remaining] == [
+        {(DOMAIN, office["area_id"])}
+    ]
+    assert er.async_entries_for_device(er.async_get(hass), remaining[0].id)
+
+
+async def test_heat_source_is_forwarded_to_the_valves(
+    hass: HomeAssistant, office
+) -> None:
+    """The configured heat source reaches the valve's HeatAvailable switch."""
+    entities = er.async_get(hass)
+    heat_switch = entities.async_get_or_create(
+        "switch",
+        "zha",
+        "00:11-1-513-heat_available",
+        suggested_object_id="valve_heat_available",
+        device_id=office["valve_device_id"],
+        config_entry=office["zha_entry"],
+    ).entity_id
+    hass.states.async_set(heat_switch, "off")
+    source = entities.async_get_or_create(
+        "binary_sensor", "ecl310", "heat_available", suggested_object_id="ecl_heat"
+    )
+    hass.states.async_set(source.entity_id, "on")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": True,
+            "max_sensor_age_minutes": 120,
+            "startup_delay_minutes": 0,
+            "heat_source": source.id,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(heat_switch).state == "on"
+    office["calls"].clear()
+    hass.states.async_set(source.entity_id, "off")
+    await hass.async_block_till_done()
+    assert hass.states.get(heat_switch).state == "off"
+    assert [call.data["entity_id"] for call in office["calls"]] == [heat_switch]

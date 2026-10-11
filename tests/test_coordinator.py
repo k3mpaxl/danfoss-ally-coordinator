@@ -1353,3 +1353,79 @@ def test_valve_errors_are_readable_from_the_built_in_quirk() -> None:
     assert coordinator.valve_diagnostics(room)[0]["errors"] == [
         "Invalid_clock_information"
     ]
+
+
+def heat_room() -> RoomDefinition:
+    """One valve that exposes catalogue §2.7 HeatAvailable."""
+    return RoomDefinition(
+        area_id="office",
+        name="Büro",
+        valves=(
+            ValveTarget(
+                "trv-1",
+                "number.trv",
+                "switch.window",
+                heat_available_entity_id="switch.trv_heat_available",
+            ),
+        ),
+        temperature_entity_ids=(),
+        window_entity_ids=(),
+    )
+
+
+def test_heat_available_is_forwarded_on_change_and_refreshed() -> None:
+    """The heat source reaches every valve; an unchanged value is re-sent later."""
+    hass = FakeHass(
+        {
+            "binary_sensor.ecl_heat": state("binary_sensor.ecl_heat", "on"),
+            "switch.trv_heat_available": state("switch.trv_heat_available", "off"),
+        }
+    )
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(heat_room(),),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+        heat_source_entity_id="binary_sensor.ecl_heat",
+    )
+    assert "binary_sensor.ecl_heat" in coordinator._tracked_source_ids
+    assert "binary_sensor.ecl_heat" in coordinator.known_entity_ids()
+
+    evaluate(coordinator)
+    assert hass.services.calls == [
+        ("switch", "turn_on", {"entity_id": "switch.trv_heat_available"}, True)
+    ]
+
+    # Unchanged and recently confirmed: no radio write.
+    evaluate(coordinator)
+    assert len(hass.services.calls) == 1
+
+    # The system stops supplying heat: the valve is told at once.
+    hass.states.set(state("binary_sensor.ecl_heat", "off"))
+    evaluate(coordinator)
+    assert hass.services.calls[-1][1] == "turn_off"
+
+    # Unchanged, but old enough: re-sent so a valve that missed it learns again.
+    asyncio.run(
+        coordinator.async_evaluate_all(now=NOW + timedelta(hours=3), reason="test")
+    )
+    assert hass.services.calls[-1][1] == "turn_off"
+    assert len(hass.services.calls) == 3
+
+
+@pytest.mark.parametrize("source_state", [None, "unavailable", "unknown"])
+def test_heat_available_needs_a_known_source(source_state: str | None) -> None:
+    """Without a configured or readable source the valve setting stays untouched."""
+    values = {"switch.trv_heat_available": state("switch.trv_heat_available", "off")}
+    if source_state:
+        values["binary_sensor.ecl_heat"] = state("binary_sensor.ecl_heat", source_state)
+    hass = FakeHass(values)
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(heat_room(),),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+        heat_source_entity_id="binary_sensor.ecl_heat" if source_state else None,
+    )
+    evaluate(coordinator)
+    assert hass.services.calls == []

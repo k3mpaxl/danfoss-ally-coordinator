@@ -77,7 +77,9 @@ def test_new_room_coordination_options_default_to_off():
     )
     schema = _schema((room,), {})
     defaults = {
-        key.schema: key.default() for key in schema.schema if hasattr(key, "default")
+        key.schema: key.default()
+        for key in schema.schema
+        if callable(getattr(key, "default", None))
     }
     assert defaults["sync_valve_windows"] is False
     assert defaults["aggregation"] == "median"
@@ -97,7 +99,9 @@ def test_options_keep_only_available_areas_and_offer_exclusions():
         {"areas": ["office", "removed"], "excluded_entities": ["sensor.x"]},
     )
     defaults = {
-        key.schema: key.default() for key in schema.schema if hasattr(key, "default")
+        key.schema: key.default()
+        for key in schema.schema
+        if callable(getattr(key, "default", None))
     }
     assert defaults["areas"] == ["office"]
     assert defaults["excluded_entities"] == ["sensor.x"]

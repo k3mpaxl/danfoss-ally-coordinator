@@ -13,7 +13,8 @@
           "sync_valve_windows": "Eigene Fenstererkennung der Ventile im Raum teilen",
           "excluded_entities": "Ignorierte Quellen",
           "aggregation": "Raumtemperatur aus mehreren Sensoren",
-          "startup_delay_minutes": "Wartezeit nach Home-Assistant-Start"
+          "startup_delay_minutes": "Wartezeit nach Home-Assistant-Start",
+          "heat_source": "Wärme verfügbar von"
         },
         "data_description": {
           "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche ohne passendes ZHA-Danfoss-Thermostat erscheinen nicht.",
@@ -24,7 +25,8 @@
           "sync_valve_windows": "Erkennt ein Ventil selbst ein offenes Fenster, schließen alle Ventile im Bereich. Ventile im Modus „abgedeckter Heizkörper“ erkennen Fenster nicht selbst.",
           "excluded_entities": "Entspricht den Quellen-Schaltern am jeweiligen Raumgerät: diese Sensoren oder Kontakte bleiben sichtbar, werden aber nicht genutzt, zum Beispiel eine Phantom-Öffnungs-Entity eines Bewegungsmelders.",
           "aggregation": "Der Median ignoriert einen einzelnen Ausreißer, zum Beispiel einen Sensor nahe am Heizkörper; der Mittelwert mittelt alle frischen Sensoren.",
-          "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben."
+          "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben.",
+          "heat_source": "Optional: ein Sensor, der an ist, solange die Heizung Wärme liefert – zum Beispiel „Wärme verfügbar“ der ECL Comfort 310. Er wird an alle koordinierten Ventile als „Wärme verfügbar“ (HeatAvailable, Danfoss-Katalog §2.7) weitergegeben: Ohne Wärme schalten die Ventile in den Kesselmodus und fordern keine Wärme an, die gar nicht geliefert wird. Leer = nicht genutzt."
         }
       }
     },
@@ -49,7 +51,8 @@
           "sync_valve_windows": "Eigene Fenstererkennung der Ventile im Raum teilen",
           "excluded_entities": "Ignorierte Quellen",
           "aggregation": "Raumtemperatur aus mehreren Sensoren",
-          "startup_delay_minutes": "Wartezeit nach Home-Assistant-Start"
+          "startup_delay_minutes": "Wartezeit nach Home-Assistant-Start",
+          "heat_source": "Wärme verfügbar von"
         },
         "data_description": {
           "areas": "Nur ausgewählte Bereiche werden überwacht. Bereiche ohne passendes ZHA-Danfoss-Thermostat erscheinen nicht.",
@@ -60,7 +63,8 @@
           "sync_valve_windows": "Erkennt ein Ventil selbst ein offenes Fenster, schließen alle Ventile im Bereich. Ventile im Modus „abgedeckter Heizkörper“ erkennen Fenster nicht selbst.",
           "excluded_entities": "Entspricht den Quellen-Schaltern am jeweiligen Raumgerät: diese Sensoren oder Kontakte bleiben sichtbar, werden aber nicht genutzt, zum Beispiel eine Phantom-Öffnungs-Entity eines Bewegungsmelders.",
           "aggregation": "Der Median ignoriert einen einzelnen Ausreißer, zum Beispiel einen Sensor nahe am Heizkörper; der Mittelwert mittelt alle frischen Sensoren.",
-          "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben."
+          "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben.",
+          "heat_source": "Optional: ein Sensor, der an ist, solange die Heizung Wärme liefert – zum Beispiel „Wärme verfügbar“ der ECL Comfort 310. Er wird an alle koordinierten Ventile als „Wärme verfügbar“ (HeatAvailable, Danfoss-Katalog §2.7) weitergegeben: Ohne Wärme schalten die Ventile in den Kesselmodus und fordern keine Wärme an, die gar nicht geliefert wird. Leer = nicht genutzt."
         }
       }
     },
