@@ -23,7 +23,7 @@ CONF_HEAT_SOURCE = "heat_source"
 CONF_DEMAND_CLIMATES = "demand_climates"
 # Catalogue §1.6: run the adaptation only while heat is available.
 CONF_ADAPTATION_WITH_HEAT = "adaptation_with_heat"
-# Catalogue §3.8: weekly valve exercise, staggered by EXERCISE_STAGGER_MINUTES.
+# Catalogue §3.7: weekly valve exercise, staggered by EXERCISE_STAGGER_MINUTES.
 CONF_EXERCISE_DAY = "exercise_day"
 CONF_EXERCISE_TIME = "exercise_time"
 

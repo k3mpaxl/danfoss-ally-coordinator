@@ -86,7 +86,7 @@ class ValveTarget:
     # Demand reported by the valve (0x4031 heat required, PI heating demand).
     heat_required_entity_id: str | None = None
     pi_demand_entity_id: str | None = None
-    # Catalogue §1.6 adaptation run, §3.8 valve exercise.
+    # Catalogue §1.6 adaptation run, §3.7 valve exercise.
     adaptation_control_entity_id: str | None = None
     adaptation_settings_entity_id: str | None = None
     exercise_day_entity_id: str | None = None

@@ -3,7 +3,33 @@
 [![Lint](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/lint.yml/badge.svg)](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/lint.yml)
 [![Validate](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/validate.yml/badge.svg)](https://github.com/k3mpaxl/danfoss-ally-coordinator/actions/workflows/validate.yml)
 
-A Home Assistant HACS custom integration for **Danfoss eTRV0103 valves paired directly with ZHA**. It adds the *room-level coordination* that a Danfoss gateway would otherwise perform: supplying room-sensor temperature to each valve, distributing a room's window-open signal, keeping the target temperature of several valves in one room equal, and sharing their radiator load. No proprietary Danfoss gateway is required. Tested against Home Assistant **2026.10.0**.
+A Home Assistant HACS custom integration for the **Danfoss Ally electronic radiator thermostat (eTRV0103, order no. 014G2461) paired directly with ZHA**. It takes over the job of the Danfoss gateway: room temperature and window state for every valve, equal targets and shared load for several valves in a room, the valve clock, the adaptation run, valve exercise, the heating system's *heat available* signal and house-wide heat demand. No proprietary Danfoss gateway is required. Tested against Home Assistant **2026.10**.
+
+> **ZHA alone exposes the datapoints – the coordinator uses them.** The eTRV is designed to run under a gateway. Danfoss's [Feature Catalogue](https://assets.danfoss.com/documents/latest/602270/AU417130778872en-000201.pdf) assigns a long list of duties to that gateway: setting the clock (and summer time), feeding an external room temperature on a strict cadence, distributing window state, calculating the room load mean, telling the valve whether heat is available, starting the adaptation run when there *is* heat. ZHA's built-in Danfoss quirk turns every datapoint into an entity (the same set [Zigbee2MQTT documents](https://www.zigbee2mqtt.io/devices/014G2461.html)), but nothing drives them – a valve on ZHA alone runs on its own sensor, with an unset or wrong clock, a nightly adaptation that fails without heat, and no idea of its room. Only together with this coordinator does the valve use its features and datapoints the way Danfoss intends. See [*Datapoints: ZHA alone vs. with the coordinator*](#datapoints-zha-alone-vs-with-the-coordinator).
+
+## Datapoints: ZHA alone vs. with the coordinator
+
+All datapoints of the eTRV as listed by [Zigbee2MQTT](https://www.zigbee2mqtt.io/devices/014G2461.html) and specified in the Danfoss [Feature Catalogue](https://assets.danfoss.com/documents/latest/602270/AU417130778872en-000201.pdf). *ZHA* means the entity ZHA's built-in quirk creates; *coordinator* means what this integration does with it.
+
+| Datapoint (Z2M name) | Catalogue | ZHA alone | With the coordinator |
+| :--- | :--- | :--- | :--- |
+| `occupied_heating_setpoint`, `setpoint_change_source` | §2.1 | target per valve | kept equal across the valves of a room; never during an adaptation run |
+| `external_measured_room_sensor` | §2.3/§2.4 | number, stays at −80 (off) | room median/mean written on the catalogue cadence (30 min/2 h 45 exposed, 5/25 min covered) |
+| `radiator_covered` | §2.4 | switch | read to pick the write cadence |
+| `window_open_external` | §3.3 | switch | set from the room's contacts |
+| `window_open_internal`, `window_open_feature` | §3.3 | sensor / switch | one valve's own detection optionally shared with the room |
+| `load_estimate`, `load_room_mean`, `load_balancing_enable` | §2.2 | sensor / number / switch | room mean calculated and sent every 15 min; released (−8000) when off |
+| `heat_available` | §2.7 | switch, never set | forwarded from the heating system (e.g. ECL Comfort 310), re-sent every 3 h |
+| `heat_required`, `pi_heating_demand` | §2.7 | per valve | combined into house demand sensors (with floor heating) |
+| `adaptation_run_status`, `adaptation_run_control`, `adaptation_run_settings` | §1.6 | nightly run, also without heat | nightly run off; started once heat is available, only where the characteristic is missing |
+| `trigger_time`, `day_of_week` (exercise) | §3.7 | per valve | one day for all valves, staggered by 10 min |
+| Time cluster (time, time zone, DST) | §1.2 | written once at pairing, no summer time | all six attributes weekly and after *Invalid clock information* |
+| `system_status_code` (SW error code) | §1.5 | sensor | shown per valve; a lost clock triggers the time sync |
+| `local_temperature`, `running_state`, `battery` | – | sensors | used for diagnostics and availability |
+| `algorithm_scale_factor`, `keypad_lockout`, `max_heat_setpoint_limit`, `min_heat_setpoint_limit` | §3.8, §3.5, §3.4 | per valve | respected (setpoint sync stays inside each valve's limits); set them per valve |
+| `regulation_setpoint_offset`, local temperature calibration | §2.5/§2.6 | per valve | optional one-shot calibration action from the measured room gap |
+| `mounted_mode_*`, `thermostat_orientation`, `viewing_direction` | §1.7, §1.4, §1.3 | per valve | installation settings – not touched |
+| `programming_operation_mode`, `occupied_heating_setpoint_scheduled`, `preheat_status`, `preheat_time` | §3.1/§3.2 | per valve | schedules and pre-heat stay with the valve or Home Assistant – not managed |
 
 ## Why this integration exists
 
@@ -25,7 +51,7 @@ Checked against Danfoss, [*Feature Catalogue Ally electronic Radiator Thermostat
 | §2.2 load balancing (`0x404A`, `0x4040`, `0x4032`) | **Integration, per room (off by default), rooms with ≥ 2 valves:** averages the valves' own load estimates (discarding values below −500 and older than 90 min) and sends the mean to every valve every 15 min. Turning it off clears the mean (−8000) and switches off each valve's load-balancing mode. If a room has fewer than two supported valves, any saved room opt-in and active load-balancing mode on its remaining valve are automatically turned off. The catalogue recommends it for rooms with several covered radiators. |
 | §3.2 adaptive preheat | **Not implemented** (needs a schedule in the valves). |
 | §1.6 adaptation run (`0x404C`, `0x404D`, `0x404E`) | **Integration, optional (on by default, needs a heat source):** the valves' own nightly run is switched off; the coordinator starts the run once the heat source has reported heat for 30 min – only on valves that have not found their valve characteristic and are not running one, at most once a day. Without heat the run cannot succeed (catalogue: "the heating must be on"). |
-| §3.8 valve exercise (`0x4010`, `0x4011`) | **Integration, optional (on by default):** every coordinated valve gets the same exercise day (default Wednesday), staggered by 10 min from the start time (default 10:00), so they do not all move at night or at once. Written only when a valve differs. |
+| §3.7 valve exercise (`0x4010`, `0x4011`) | **Integration, optional (on by default):** every coordinated valve gets the same exercise day (default Wednesday), staggered by 10 min from the start time (default 10:00), so they do not all move at night or at once. Written only when a valve differs. |
 | §1.2 time/DST | **Integration:** writes all six Time cluster attributes (time, status `0x02`, standard time zone, DST start/end of the current year, DST shift – from Home Assistant's time zone) weekly and at once when a valve reports *Invalid clock information*. ZHA's quirk only writes time, status and a time zone on binding. |
 | §3.1 weekly schedules | **Not managed.** |
 | §2.7 boiler integration (`0x4030` HeatAvailable) | **Integration, optional:** pick a binary sensor that is on while the heating system supplies heat (for example the [ECL Comfort 310](https://github.com/k3mpaxl/ecl310-hacs) integration's *Heat available*). Its state is written to every coordinated valve's *heat available* switch on each change and re-sent every 3 h. Told that no heat is available, the valve enters boiler mode for 48 h and stops requesting heat the system is not supplying. An unknown or unavailable source writes nothing. |

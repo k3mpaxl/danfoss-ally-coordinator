@@ -181,7 +181,7 @@ class RoomCoordinator:
         # valve last confirmed the forwarded value.
         self.heat_source_entity_id = heat_source_entity_id
         self._heat_sent_at: dict[str, datetime] = {}
-        # Valve upkeep (catalogue §1.2 clock, §1.6 adaptation, §3.8 exercise).
+        # Valve upkeep (catalogue §1.2 clock, §1.6 adaptation, §3.7 exercise).
         self.adaptation_with_heat = adaptation_with_heat
         self.exercise_day = exercise_day
         self.exercise_time = exercise_time
@@ -1335,7 +1335,7 @@ class RoomCoordinator:
     # -- Valve upkeep -------------------------------------------------------------
 
     def exercise_targets(self) -> dict[str, tuple[str, int]]:
-        """The exercise day and minute of day each valve should have (§3.8)."""
+        """The exercise day and minute of day each valve should have (§3.7)."""
         if self.exercise_day is None:
             return {}
         return exercise_plan(

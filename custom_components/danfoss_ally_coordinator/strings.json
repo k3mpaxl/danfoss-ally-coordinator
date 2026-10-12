@@ -33,7 +33,7 @@
           "heat_source": "Optional: a binary sensor that is on while the heating system supplies heat, for example the ECL Comfort 310's 'Heat available'. It is forwarded to every coordinated valve as HeatAvailable (Danfoss catalogue §2.7): without heat the valves switch to boiler mode and stop requesting heat the system is not supplying. Empty = not used.",
           "adaptation_with_heat": "The valves' own nightly adaptation run is switched off. Instead the coordinator starts it once the heat source has reported heat for 30 minutes - only on valves that have not learned their valve characteristic and are not running one (Danfoss catalogue §1.6). Needs 'Heat available from'.",
           "demand_climates": "Thermostats (e.g. floor heating) whose action 'heating' counts as room demand in the house sensors. The house sensors only report; nothing is switched by them.",
-          "exercise_day": "All coordinated valves exercise (move once to prevent sticking, catalogue §3.8) on this day, staggered by 10 minutes from the start time. 'Off' leaves the valves' own setting.",
+          "exercise_day": "All coordinated valves exercise (move once to prevent sticking, catalogue §3.7) on this day, staggered by 10 minutes from the start time. 'Off' leaves the valves' own setting.",
           "exercise_time": "Start time of the first valve; each further valve follows 10 minutes later."
         }
       }
@@ -79,7 +79,7 @@
           "heat_source": "Optional: a binary sensor that is on while the heating system supplies heat, for example the ECL Comfort 310's 'Heat available'. It is forwarded to every coordinated valve as HeatAvailable (Danfoss catalogue §2.7): without heat the valves switch to boiler mode and stop requesting heat the system is not supplying. Empty = not used.",
           "adaptation_with_heat": "The valves' own nightly adaptation run is switched off. Instead the coordinator starts it once the heat source has reported heat for 30 minutes - only on valves that have not learned their valve characteristic and are not running one (Danfoss catalogue §1.6). Needs 'Heat available from'.",
           "demand_climates": "Thermostats (e.g. floor heating) whose action 'heating' counts as room demand in the house sensors. The house sensors only report; nothing is switched by them.",
-          "exercise_day": "All coordinated valves exercise (move once to prevent sticking, catalogue §3.8) on this day, staggered by 10 minutes from the start time. 'Off' leaves the valves' own setting.",
+          "exercise_day": "All coordinated valves exercise (move once to prevent sticking, catalogue §3.7) on this day, staggered by 10 minutes from the start time. 'Off' leaves the valves' own setting.",
           "exercise_time": "Start time of the first valve; each further valve follows 10 minutes later."
         }
       }
