@@ -1,7 +1,8 @@
 """End-to-end coordinator behavior using only typed existing ZHA entities."""
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from types import SimpleNamespace
 
 import pytest
 from homeassistant.core import Context, State
@@ -64,6 +65,8 @@ class FakeServices:
         self, domain: str, service: str, data: dict[str, object], *, blocking: bool
     ) -> None:
         self.calls.append((domain, service, data, blocking))
+        if "entity_id" not in data:  # e.g. zha.set_zigbee_cluster_attribute (by IEEE)
+            return
         entity_id = data["entity_id"]
         old = self.states.get(entity_id)
         attributes = dict(old.attributes) if old is not None else {}
@@ -73,6 +76,8 @@ class FakeServices:
             self.states.set(
                 State(entity_id, "on" if service == "turn_on" else "off", attributes)
             )
+        elif domain == "select":
+            self.states.set(State(entity_id, str(data["option"]), attributes))
         elif domain == "climate" and service == "set_temperature":
             attributes["temperature"] = data["temperature"]
             self.states.set(State(entity_id, old.state, attributes))
@@ -84,6 +89,7 @@ class FakeHass:
     def __init__(self, values: dict[str, State]) -> None:
         self.states = FakeStates(values)
         self.services = FakeServices(self.states)
+        self.config = SimpleNamespace(time_zone="Europe/Berlin")
 
     def async_create_task(self, coroutine):
         return asyncio.get_running_loop().create_task(coroutine)
@@ -1429,3 +1435,183 @@ def test_heat_available_needs_a_known_source(source_state: str | None) -> None:
     )
     evaluate(coordinator)
     assert hass.services.calls == []
+
+
+def upkeep_room() -> RoomDefinition:
+    """One valve with every entity the valve upkeep uses."""
+    return RoomDefinition(
+        area_id="office",
+        name="Büro",
+        valves=(
+            ValveTarget(
+                "trv-1",
+                "number.trv",
+                "switch.window",
+                error_entity_id="sensor.trv_error",
+                adaptation_status_entity_id="sensor.trv_adaptation",
+                adaptation_control_entity_id="select.trv_adaptation_control",
+                adaptation_settings_entity_id="switch.trv_adaptation_nightly",
+                exercise_day_entity_id="select.trv_exercise_day",
+                exercise_time_entity_id="number.trv_exercise_time",
+                heat_required_entity_id="binary_sensor.trv_heat_required",
+                pi_demand_entity_id="sensor.trv_pi_demand",
+                ieee="00:11:22:33:44:55:66:77",
+            ),
+        ),
+        temperature_entity_ids=(),
+        window_entity_ids=(),
+    )
+
+
+def upkeep_hass(**overrides: State) -> FakeHass:
+    values = {
+        "sensor.trv_error": state("sensor.trv_error", "nothing"),
+        "sensor.trv_adaptation": state(
+            "sensor.trv_adaptation",
+            "nothing",
+            {"In_progress": False, "Valve_characteristic_found": False},
+        ),
+        "select.trv_adaptation_control": state(
+            "select.trv_adaptation_control", "Nothing"
+        ),
+        "switch.trv_adaptation_nightly": state("switch.trv_adaptation_nightly", "on"),
+        "select.trv_exercise_day": state("select.trv_exercise_day", "Wednesday"),
+        "number.trv_exercise_time": state("number.trv_exercise_time", "600"),
+        "binary_sensor.ecl_heat": state("binary_sensor.ecl_heat", "off"),
+    }
+    values.update({entity_id: value for entity_id, value in overrides.items()})
+    return FakeHass(values)
+
+
+def run_upkeep(coordinator: RoomCoordinator, now: datetime = NOW) -> None:
+    async def run() -> None:
+        coordinator._started = True
+        await coordinator.async_evaluate_all(now=now, reason="test")
+        await asyncio.gather(*coordinator._tasks)
+
+    asyncio.run(run())
+
+
+def upkeep_calls(hass: FakeHass) -> list[tuple[str, str, object]]:
+    return [
+        (domain, service, data.get("option", data.get("value", data.get("attribute"))))
+        for domain, service, data, _ in hass.services.calls
+    ]
+
+
+def test_a_lost_clock_is_set_with_all_six_time_attributes() -> None:
+    """Catalogue §1.2: time, status, zone and DST, at once when the clock is lost."""
+    hass = upkeep_hass(
+        **{
+            "sensor.trv_error": state(
+                "sensor.trv_error", "something", {"Invalid_clock_information": True}
+            )
+        }
+    )
+    coordinator = RoomCoordinator(
+        hass, rooms=(upkeep_room(),), enabled=True, max_sensor_age=timedelta(hours=2)
+    )
+    run_upkeep(coordinator)
+
+    zha = [call for call in hass.services.calls if call[0] == "zha"]
+    assert [call[2]["attribute"] for call in zha] == [0, 1, 2, 3, 4, 5]
+    assert all(call[2]["cluster_id"] == 0x000A for call in zha)
+    assert all(call[2]["ieee"] == "00:11:22:33:44:55:66:77" for call in zha)
+    values = {call[2]["attribute"]: call[2]["value"] for call in zha}
+    assert values[1] == 0b10 and values[2] == 3600 and values[5] == 3600
+    assert "time:trv-1" in coordinator.sync_records
+
+    # Done: not repeated within the week (unless the clock is lost again later).
+    hass.states.set(state("sensor.trv_error", "nothing"))
+    hass.services.calls.clear()
+    run_upkeep(coordinator, NOW + timedelta(days=1))
+    assert not [call for call in hass.services.calls if call[0] == "zha"]
+
+
+def test_the_exercise_is_staggered_on_the_configured_day() -> None:
+    """Catalogue §3.8: one day for all valves, start time plus 10 min per valve."""
+    hass = upkeep_hass()
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(upkeep_room(),),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+        exercise_day="Thursday",
+        exercise_time=time(11, 0),
+    )
+    run_upkeep(coordinator)
+    calls = upkeep_calls(hass)
+    assert ("select", "select_option", "Thursday") in calls
+    assert ("number", "set_value", 660) in calls
+
+    # Matching the plan: nothing is written again.
+    hass.services.calls.clear()
+    run_upkeep(coordinator, NOW + timedelta(hours=2))
+    assert not [c for c in upkeep_calls(hass) if c[0] in ("select", "number")]
+
+
+def test_adaptation_runs_only_after_heat_has_been_available() -> None:
+    """Catalogue §1.6: nightly run off; start once heat was available for 30 min."""
+    hass = upkeep_hass(
+        **{"binary_sensor.ecl_heat": state("binary_sensor.ecl_heat", "on")}
+    )
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(upkeep_room(),),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+        heat_source_entity_id="binary_sensor.ecl_heat",
+        adaptation_with_heat=True,
+    )
+    run_upkeep(coordinator)
+    calls = upkeep_calls(hass)
+    assert ("switch", "turn_off", None) in [
+        (d, s, None) for d, s, _ in calls if d == "switch"
+    ]
+    assert ("select", "select_option", "Initiate") not in calls  # heat just arrived
+
+    run_upkeep(coordinator, NOW + timedelta(minutes=31))
+    assert ("select", "select_option", "Initiate") in upkeep_calls(hass)
+
+    # A valve that already knows its characteristic is left alone.
+    hass.services.calls.clear()
+    hass.states.set(
+        state(
+            "sensor.trv_adaptation",
+            "something",
+            {"In_progress": False, "Valve_characteristic_found": True},
+        )
+    )
+    run_upkeep(coordinator, NOW + timedelta(days=2))
+    assert ("select", "select_option", "Initiate") not in upkeep_calls(hass)
+
+
+def test_house_demand_combines_valves_and_floor_heating() -> None:
+    """Highest demand, any room needing heat, and which rooms."""
+    hass = upkeep_hass(
+        **{
+            "binary_sensor.trv_heat_required": state(
+                "binary_sensor.trv_heat_required", "on"
+            ),
+            "sensor.trv_pi_demand": state("sensor.trv_pi_demand", "35"),
+            "climate.bath_floor": state(
+                "climate.bath_floor", "heat", {"hvac_action": "idle"}
+            ),
+        }
+    )
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(upkeep_room(),),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+        demand_climates={"climate.bath_floor": "Bad"},
+    )
+    demand = coordinator.house_demand()
+    assert (
+        demand.max_percent == 35 and demand.any_required and demand.rooms == ("Büro",)
+    )
+
+    hass.states.set(state("climate.bath_floor", "heat", {"hvac_action": "heating"}))
+    demand = coordinator.house_demand()
+    assert demand.max_percent == 100 and demand.rooms == ("Bad", "Büro")
+    assert "climate.bath_floor" in coordinator.demand_entity_ids()

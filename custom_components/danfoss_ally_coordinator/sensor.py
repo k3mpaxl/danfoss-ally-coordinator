@@ -7,12 +7,13 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DanfossAllyConfigEntry
 from .discovery import ValveTarget
 from .entity import DanfossAllyRoomEntity
+from .house import DanfossAllyHouseEntity
 
 
 async def async_setup_entry(
@@ -34,6 +35,13 @@ async def async_setup_entry(
         for valve in room.valves
         if valve.climate_entity_id and valve.calibration_entity_id
     )
+    if coordinator.demand_entity_ids():
+        async_add_entities(
+            [
+                HouseHeatDemandSensor(coordinator),
+                HouseRoomsWithDemandSensor(coordinator),
+            ]
+        )
 
 
 class RoomMeanTemperatureSensor(DanfossAllyRoomEntity, SensorEntity):
@@ -126,3 +134,37 @@ class LocalTemperatureGapSensor(DanfossAllyRoomEntity, SensorEntity):
             "configured_offset_celsius": state.state if state else None,
             "covered_mode": self.coordinator.valve_covered(self.valve),
         }
+
+
+class HouseHeatDemandSensor(DanfossAllyHouseEntity, SensorEntity):
+    """Highest heat demand of any room (valve PI demand; heating floor = 100 %)."""
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:radiator"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "heat_demand")
+
+    @property
+    def native_value(self) -> float | None:
+        return self.coordinator.house_demand().max_percent
+
+
+class HouseRoomsWithDemandSensor(DanfossAllyHouseEntity, SensorEntity):
+    """How many rooms ask for heat right now, and which."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-thermometer"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "rooms_with_demand")
+
+    @property
+    def native_value(self) -> int | None:
+        demand = self.coordinator.house_demand()
+        return None if demand.any_required is None else len(demand.rooms)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {"rooms": list(self.coordinator.house_demand().rooms)}

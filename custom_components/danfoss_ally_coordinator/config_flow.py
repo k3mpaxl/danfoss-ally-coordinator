@@ -12,24 +12,32 @@ from homeassistant.helpers import selector
 from .const import (
     AGGREGATION_MEAN,
     AGGREGATION_MEDIAN,
+    CONF_ADAPTATION_WITH_HEAT,
     CONF_AGGREGATION,
     CONF_AREAS,
+    CONF_DEMAND_CLIMATES,
     CONF_ENABLED,
     CONF_EXCLUDED_ENTITIES,
+    CONF_EXERCISE_DAY,
+    CONF_EXERCISE_TIME,
     CONF_HEAT_SOURCE,
     CONF_MAX_SENSOR_AGE_MINUTES,
     CONF_STARTUP_DELAY_MINUTES,
     CONF_SYNC_TEMPERATURE,
     CONF_SYNC_VALVE_WINDOWS,
     CONF_SYNC_WINDOWS,
+    DEFAULT_ADAPTATION_WITH_HEAT,
     DEFAULT_AGGREGATION,
     DEFAULT_ENABLED,
+    DEFAULT_EXERCISE_DAY,
+    DEFAULT_EXERCISE_TIME,
     DEFAULT_MAX_SENSOR_AGE_MINUTES,
     DEFAULT_STARTUP_DELAY_MINUTES,
     DEFAULT_SYNC_TEMPERATURE,
     DEFAULT_SYNC_VALVE_WINDOWS,
     DEFAULT_SYNC_WINDOWS,
     DOMAIN,
+    EXERCISE_OFF,
     MAX_SENSOR_AGE_MINUTES,
     MAX_STARTUP_DELAY_MINUTES,
     MIN_SENSOR_AGE_MINUTES,
@@ -37,6 +45,7 @@ from .const import (
 )
 from .discovery import async_discover_rooms
 from .entity_refs import to_entity_ids, to_registry_ids
+from .maintenance import EXERCISE_DAYS
 
 
 def _area_option_label(room) -> str:
@@ -149,6 +158,32 @@ def _schema(rooms, defaults: dict[str, Any]) -> vol.Schema:
                     domain=["binary_sensor", "switch", "input_boolean"]
                 )
             ),
+            vol.Required(
+                CONF_ADAPTATION_WITH_HEAT,
+                default=defaults.get(
+                    CONF_ADAPTATION_WITH_HEAT, DEFAULT_ADAPTATION_WITH_HEAT
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_DEMAND_CLIMATES,
+                default=list(defaults.get(CONF_DEMAND_CLIMATES, [])),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="climate", multiple=True)
+            ),
+            vol.Required(
+                CONF_EXERCISE_DAY,
+                default=defaults.get(CONF_EXERCISE_DAY, DEFAULT_EXERCISE_DAY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[EXERCISE_OFF, *EXERCISE_DAYS],
+                    translation_key=CONF_EXERCISE_DAY,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Required(
+                CONF_EXERCISE_TIME,
+                default=defaults.get(CONF_EXERCISE_TIME, DEFAULT_EXERCISE_TIME),
+            ): selector.TimeSelector(),
         }
     )
 
@@ -162,10 +197,9 @@ def _store_references(hass, user_input: dict[str, Any]) -> dict[str, Any]:
     stored = {**user_input, CONF_HEAT_SOURCE: None}
     if source := user_input.get(CONF_HEAT_SOURCE):
         stored[CONF_HEAT_SOURCE] = to_registry_ids(hass, [source])[0]
-    if CONF_EXCLUDED_ENTITIES in user_input:
-        stored[CONF_EXCLUDED_ENTITIES] = to_registry_ids(
-            hass, user_input[CONF_EXCLUDED_ENTITIES]
-        )
+    for key in (CONF_EXCLUDED_ENTITIES, CONF_DEMAND_CLIMATES):
+        if key in user_input:
+            stored[key] = to_registry_ids(hass, user_input[key])
     return stored
 
 
@@ -176,6 +210,9 @@ def _show_references(hass, configuration: dict[str, Any]) -> dict[str, Any]:
         **configuration,
         CONF_EXCLUDED_ENTITIES: sorted(
             to_entity_ids(hass, configuration.get(CONF_EXCLUDED_ENTITIES, ()))
+        ),
+        CONF_DEMAND_CLIMATES: sorted(
+            to_entity_ids(hass, configuration.get(CONF_DEMAND_CLIMATES, ()))
         ),
         CONF_HEAT_SOURCE: next(iter(to_entity_ids(hass, [source]))) if source else None,
     }

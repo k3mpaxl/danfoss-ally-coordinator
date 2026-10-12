@@ -30,10 +30,14 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_ADAPTATION_WITH_HEAT,
     CONF_AGGREGATION,
     CONF_AREAS,
+    CONF_DEMAND_CLIMATES,
     CONF_ENABLED,
     CONF_EXCLUDED_ENTITIES,
+    CONF_EXERCISE_DAY,
+    CONF_EXERCISE_TIME,
     CONF_HEAT_SOURCE,
     CONF_LOAD_BALANCING_AREAS,
     CONF_MAX_SENSOR_AGE_MINUTES,
@@ -42,12 +46,16 @@ from .const import (
     CONF_SYNC_TEMPERATURE,
     CONF_SYNC_VALVE_WINDOWS,
     CONF_SYNC_WINDOWS,
+    DEFAULT_ADAPTATION_WITH_HEAT,
     DEFAULT_AGGREGATION,
+    DEFAULT_EXERCISE_DAY,
+    DEFAULT_EXERCISE_TIME,
     DEFAULT_STARTUP_DELAY_MINUTES,
     DEFAULT_SYNC_TEMPERATURE,
     DEFAULT_SYNC_VALVE_WINDOWS,
     DEFAULT_SYNC_WINDOWS,
     DOMAIN,
+    EXERCISE_OFF,
     LIVE_OPTION_KEYS,
     STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
@@ -55,6 +63,7 @@ from .const import (
 from .coordinator import RoomCoordinator
 from .discovery import RoomDefinition, async_discover_rooms
 from .entity_refs import to_entity_ids, to_registry_ids
+from .house import HOUSE_ID
 from .store import SyncStateStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -166,6 +175,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) 
             )
         ),
         heat_source_entity_id=_heat_source(hass, configuration),
+        adaptation_with_heat=bool(
+            configuration.get(CONF_ADAPTATION_WITH_HEAT, DEFAULT_ADAPTATION_WITH_HEAT)
+        ),
+        exercise_day=_exercise_day(configuration),
+        exercise_time=dt_util.parse_time(
+            configuration.get(CONF_EXERCISE_TIME) or DEFAULT_EXERCISE_TIME
+        )
+        or dt_util.parse_time(DEFAULT_EXERCISE_TIME),
+        demand_climates=_demand_climates(hass, configuration),
         **_live_settings(hass, configuration),
         sync_records=await store.async_load(),
         sync_state_store=store,
@@ -197,6 +215,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: DanfossAllyConfigEntry) 
     return True
 
 
+def _exercise_day(configuration: dict[str, Any]) -> str | None:
+    """The configured exercise day, or None when exercise planning is off."""
+    day = configuration.get(CONF_EXERCISE_DAY, DEFAULT_EXERCISE_DAY)
+    return None if day in (None, EXERCISE_OFF) else day
+
+
+def _demand_climates(
+    hass: HomeAssistant, configuration: dict[str, Any]
+) -> dict[str, str]:
+    """Extra demand thermostats (stored by registry ID) mapped to their room name."""
+    from homeassistant.helpers import area_registry as ar
+
+    entities = er.async_get(hass)
+    devices = dr.async_get(hass)
+    areas = ar.async_get(hass)
+    result: dict[str, str] = {}
+    for entity_id in sorted(
+        to_entity_ids(hass, configuration.get(CONF_DEMAND_CLIMATES) or ())
+    ):
+        entry = entities.async_get(entity_id)
+        area_id = entry.area_id if entry else None
+        if area_id is None and entry and entry.device_id:
+            device = devices.async_get(entry.device_id)
+            area_id = device.area_id if device else None
+        area = areas.async_get_area(area_id) if area_id else None
+        result[entity_id] = area.name if area else entity_id
+    return result
+
+
 def _heat_source(hass: HomeAssistant, configuration: dict[str, Any]) -> str | None:
     """Resolve the stored heat source (registry ID) to its current entity ID."""
     if not (source := configuration.get(CONF_HEAT_SOURCE)):
@@ -215,14 +262,14 @@ def _async_remove_orphans(
     integration is keyed by its room's area ID. Sources of a current room are
     left alone: one whose integration is still loading must keep its settings.
     """
-    prefixes = tuple(f"{room.area_id}_" for room in coordinator.rooms)
+    prefixes = (f"{HOUSE_ID}_", *(f"{room.area_id}_" for room in coordinator.rooms))
     entity_registry = er.async_get(hass)
     for entity_entry in er.async_entries_for_config_entry(
         entity_registry, entry.entry_id
     ):
         if not entity_entry.unique_id.startswith(prefixes):
             entity_registry.async_remove(entity_entry.entity_id)
-    current_areas = {room.area_id for room in coordinator.rooms}
+    current_areas = {HOUSE_ID, *(room.area_id for room in coordinator.rooms)}
     device_registry = dr.async_get(hass)
     for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
         areas = {value for domain, value in device.identifiers if domain == DOMAIN}
@@ -237,7 +284,11 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Allow deleting a room device only once its room is no longer coordinated."""
     coordinator: RoomCoordinator | None = getattr(entry, "runtime_data", None)
-    current = {room.area_id for room in coordinator.rooms} if coordinator else set()
+    current = (
+        {HOUSE_ID, *(room.area_id for room in coordinator.rooms)}
+        if coordinator
+        else set()
+    )
     return not any(
         domain == DOMAIN and value in current for domain, value in device.identifiers
     )

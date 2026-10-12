@@ -21,6 +21,12 @@ LOAD_BALANCING_ENABLE_SUFFIX = "-load_balancing_enable"
 ADAPTATION_STATUS_SUFFIX = "-adaptation_run_status"
 ERROR_CODE_SUFFIX = "-sw_error_code"
 HEAT_AVAILABLE_SUFFIX = "-heat_available"
+HEAT_REQUIRED_SUFFIX = "-heat_required"
+PI_DEMAND_SUFFIX = "-pi_heating_demand"
+ADAPTATION_CONTROL_SUFFIX = "-adaptation_run_control"
+ADAPTATION_SETTINGS_SUFFIX = "-adaptation_run_settings"
+EXERCISE_DAY_SUFFIX = "-exercise_day_of_week"
+EXERCISE_TIME_SUFFIX = "-exercise_trigger_time"
 # Entities ZHA's built-in Danfoss quirk must expose before a valve is controlled.
 REQUIRED_ENTITIES = (
     ("number", TEMPERATURE_UNIQUE_SUFFIX),
@@ -38,6 +44,7 @@ class DeviceRecord:
     model: str | None
     area_id: str | None
     name: str | None = None
+    ieee: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +83,16 @@ class ValveTarget:
     error_entity_id: str | None = None
     # Catalogue §2.7: whether the heating system supplies heat (0x4030).
     heat_available_entity_id: str | None = None
+    # Demand reported by the valve (0x4031 heat required, PI heating demand).
+    heat_required_entity_id: str | None = None
+    pi_demand_entity_id: str | None = None
+    # Catalogue §1.6 adaptation run, §3.8 valve exercise.
+    adaptation_control_entity_id: str | None = None
+    adaptation_settings_entity_id: str | None = None
+    exercise_day_entity_id: str | None = None
+    exercise_time_entity_id: str | None = None
+    # ZHA IEEE address, for Time cluster writes (catalogue §1.2).
+    ieee: str | None = None
 
     @property
     def supports_load_balancing(self) -> bool:
@@ -200,6 +217,13 @@ def _find_target(
         optional("sensor", ADAPTATION_STATUS_SUFFIX),
         optional("sensor", ERROR_CODE_SUFFIX),
         optional("switch", HEAT_AVAILABLE_SUFFIX),
+        heat_required_entity_id=optional("binary_sensor", HEAT_REQUIRED_SUFFIX),
+        pi_demand_entity_id=optional("sensor", PI_DEMAND_SUFFIX),
+        adaptation_control_entity_id=optional("select", ADAPTATION_CONTROL_SUFFIX),
+        adaptation_settings_entity_id=optional("switch", ADAPTATION_SETTINGS_SUFFIX),
+        exercise_day_entity_id=optional("select", EXERCISE_DAY_SUFFIX),
+        exercise_time_entity_id=optional("number", EXERCISE_TIME_SUFFIX),
+        ieee=device.ieee,
     )
 
 
@@ -302,6 +326,10 @@ async def async_discover_rooms(
             model=device.model,
             area_id=device.area_id,
             name=device.name_by_user or device.name,
+            ieee=next(
+                (value for domain, value in device.identifiers if domain == "zha"),
+                None,
+            ),
         )
         for device in device_registry.devices
     )

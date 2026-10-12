@@ -10,6 +10,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DanfossAllyConfigEntry
 from .entity import DanfossAllyRoomEntity
+from .house import DanfossAllyHouseEntity
 
 
 async def async_setup_entry(
@@ -20,6 +21,8 @@ async def async_setup_entry(
     async_add_entities(
         RoomWindowOpenSensor(coordinator, room) for room in coordinator.rooms
     )
+    if coordinator.demand_entity_ids():
+        async_add_entities([HouseHeatRequiredSensor(coordinator)])
 
 
 class RoomWindowOpenSensor(DanfossAllyRoomEntity, BinarySensorEntity):
@@ -41,3 +44,20 @@ class RoomWindowOpenSensor(DanfossAllyRoomEntity, BinarySensorEntity):
             **super().extra_state_attributes,
             "contacts": self.coordinator.source_details(self.room)["window"],
         }
+
+
+class HouseHeatRequiredSensor(DanfossAllyHouseEntity, BinarySensorEntity):
+    """On while a room asks for heat (valve "heat required" or a heating floor)."""
+
+    _attr_device_class = BinarySensorDeviceClass.HEAT
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "heat_required")
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.house_demand().any_required
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {"rooms": list(self.coordinator.house_demand().rooms)}

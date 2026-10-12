@@ -646,3 +646,57 @@ async def test_heat_source_is_forwarded_to_the_valves(
     await hass.async_block_till_done()
     assert hass.states.get(heat_switch).state == "off"
     assert [call.data["entity_id"] for call in office["calls"]] == [heat_switch]
+
+
+async def test_house_demand_sensors_report_valves_and_floor_heating(
+    hass: HomeAssistant, office
+) -> None:
+    """The house device sums up room demand; floor heating counts by its action."""
+    entities = er.async_get(hass)
+    for domain, suffix, object_id, value in (
+        ("binary_sensor", "-513-heat_required", "valve_heat_required", "off"),
+        ("sensor", "-513-pi_heating_demand", "valve_pi_demand", "12"),
+    ):
+        entity_id = entities.async_get_or_create(
+            domain,
+            "zha",
+            f"00:11-1{suffix}",
+            suggested_object_id=object_id,
+            device_id=office["valve_device_id"],
+            config_entry=office["zha_entry"],
+        ).entity_id
+        hass.states.async_set(entity_id, value)
+    floor = entities.async_get_or_create(
+        "climate", "esphome", "bath", suggested_object_id="bath_floor"
+    )
+    bath = ar.async_get(hass).async_create("Bath")
+    entities.async_update_entity(floor.entity_id, area_id=bath.id)
+    hass.states.async_set(floor.entity_id, "heat", {"hvac_action": "idle"})
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": False,
+            "max_sensor_age_minutes": 120,
+            "demand_climates": [floor.id],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    ids = {
+        e.unique_id: e.entity_id
+        for e in er.async_entries_for_config_entry(entities, entry.entry_id)
+    }
+    assert hass.states.get(ids["house_heat_demand"]).state == "12.0"
+    assert hass.states.get(ids["house_heat_required"]).state == "off"
+    assert hass.states.get(ids["house_rooms_with_demand"]).state == "0"
+
+    hass.states.async_set(floor.entity_id, "heat", {"hvac_action": "heating"})
+    await hass.async_block_till_done()
+    assert hass.states.get(ids["house_heat_demand"]).state == "100.0"
+    assert hass.states.get(ids["house_heat_required"]).state == "on"
+    rooms = hass.states.get(ids["house_rooms_with_demand"])
+    assert rooms.state == "1" and rooms.attributes["rooms"] == ["Bath"]

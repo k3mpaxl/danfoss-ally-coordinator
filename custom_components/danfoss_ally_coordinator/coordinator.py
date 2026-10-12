@@ -7,8 +7,9 @@ import logging
 import math
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -26,14 +27,27 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ADAPTATION_HEAT_DELAY,
+    ADAPTATION_RETRY,
     CONF_EXCLUDED_ENTITIES,
     CONF_LOAD_BALANCING_AREAS,
     CONF_SETPOINT_SYNC_DISABLED_AREAS,
     DEFAULT_AGGREGATION,
+    EXERCISE_STAGGER_MINUTES,
     HEAT_AVAILABLE_REFRESH,
     LOCAL_EVALUATION_INTERVAL,
+    MAINTENANCE_RETRY,
+    TIME_SYNC_INTERVAL,
 )
 from .discovery import RoomDefinition, ValveTarget
+from .maintenance import (
+    CLOCK_LOST_ERROR,
+    DemandSource,
+    HouseDemand,
+    exercise_plan,
+    house_demand,
+    time_attributes,
+)
 from .planner import (
     DEFAULT_CALIBRATION_LIMIT,
     LOAD_INVALID,
@@ -137,6 +151,10 @@ class RoomCoordinator:
         load_balancing_areas: frozenset[str] = frozenset(),
         startup_delay: timedelta = timedelta(0),
         heat_source_entity_id: str | None = None,
+        adaptation_with_heat: bool = False,
+        exercise_day: str | None = None,
+        exercise_time: time = time(10, 0),
+        demand_climates: dict[str, str] | None = None,
         sync_records: dict[str, SyncRecord] | None = None,
         sync_state_store: SyncStateStore | None = None,
     ) -> None:
@@ -163,6 +181,15 @@ class RoomCoordinator:
         # valve last confirmed the forwarded value.
         self.heat_source_entity_id = heat_source_entity_id
         self._heat_sent_at: dict[str, datetime] = {}
+        # Valve upkeep (catalogue §1.2 clock, §1.6 adaptation, §3.8 exercise).
+        self.adaptation_with_heat = adaptation_with_heat
+        self.exercise_day = exercise_day
+        self.exercise_time = exercise_time
+        self._heat_on_since: datetime | None = None
+        self._maintenance_tried: dict[tuple[str, str], datetime] = {}
+        self._maintenance_running: set[str] = set()
+        # Extra demand sources (e.g. floor heating): climate entity -> room name.
+        self.demand_climates = dict(demand_climates or {})
         self.startup_delay = startup_delay
         # Set after a Home Assistant restart: values from before it are unconfirmed.
         self._ha_started_at: datetime | None = None
@@ -629,6 +656,12 @@ class RoomCoordinator:
                             valve.adaptation_status_entity_id,
                             valve.error_entity_id,
                             valve.heat_available_entity_id,
+                            valve.heat_required_entity_id,
+                            valve.pi_demand_entity_id,
+                            valve.adaptation_control_entity_id,
+                            valve.adaptation_settings_entity_id,
+                            valve.exercise_day_entity_id,
+                            valve.exercise_time_entity_id,
                         )
                         if value
                     ),
@@ -636,6 +669,7 @@ class RoomCoordinator:
             )
             | self.excluded_entity_ids
             | frozenset(filter(None, (self.heat_source_entity_id,)))
+            | frozenset(self.demand_climates)
         )
 
     def live_settings(self) -> dict[str, list[str]]:
@@ -911,6 +945,11 @@ class RoomCoordinator:
                     self.on_live_settings_changed(self.live_settings())
                 for room in unsupported.values():
                     await self._async_release_load(room)
+        heat = self.heat_available()
+        if heat:
+            self._heat_on_since = self._heat_on_since or now
+        else:
+            self._heat_on_since = None
         records_before = self._sync_records.copy()
         for room in tuple(self.rooms):
             await self.async_evaluate_room(
@@ -964,6 +1003,8 @@ class RoomCoordinator:
                 await self._async_push_window(status, valve, window_open)
             if heat is not None and valve.heat_available_entity_id:
                 await self._async_push_heat_available(status, valve, heat, now)
+            if self._started:
+                self._schedule_maintenance(valve, now)
 
         if self.load_balancing_active(room):
             await self._async_balance_load(room, status, now)
@@ -1251,11 +1292,227 @@ class RoomCoordinator:
             return
         self._heat_sent_at[entity_id] = now
 
+    # -- House-wide heat demand (signal only) -------------------------------------
+
+    def demand_entity_ids(self) -> frozenset[str]:
+        """Every entity the house demand is calculated from."""
+        return frozenset(
+            entity_id
+            for room in self.rooms
+            for valve in room.valves
+            for entity_id in (valve.heat_required_entity_id, valve.pi_demand_entity_id)
+            if entity_id
+        ) | frozenset(self.demand_climates)
+
+    def _demand_sources(self) -> list[DemandSource]:
+        sources: list[DemandSource] = []
+        for room in self.rooms:
+            for valve in room.valves:
+                required = percent = None
+                if valve.heat_required_entity_id and (
+                    state := self.hass.states.get(valve.heat_required_entity_id)
+                ):
+                    if state.state in (STATE_ON, STATE_OFF):
+                        required = state.state == STATE_ON
+                if valve.pi_demand_entity_id and (
+                    state := self.hass.states.get(valve.pi_demand_entity_id)
+                ):
+                    percent = _finite(state.state)
+                if required is not None or percent is not None:
+                    sources.append(DemandSource(room.name, required, percent))
+        for entity_id, room_name in self.demand_climates.items():
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state == STATE_UNAVAILABLE:
+                continue
+            heating = state.attributes.get("hvac_action") == "heating"
+            sources.append(DemandSource(room_name, heating, 100.0 if heating else 0.0))
+        return sources
+
+    def house_demand(self) -> HouseDemand:
+        """Highest demand, whether any room needs heat, and which rooms do."""
+        return house_demand(self._demand_sources())
+
+    # -- Valve upkeep -------------------------------------------------------------
+
+    def exercise_targets(self) -> dict[str, tuple[str, int]]:
+        """The exercise day and minute of day each valve should have (§3.8)."""
+        if self.exercise_day is None:
+            return {}
+        return exercise_plan(
+            (
+                valve.device_id
+                for room in self.rooms
+                for valve in room.valves
+                if valve.exercise_day_entity_id and valve.exercise_time_entity_id
+            ),
+            self.exercise_day,
+            self.exercise_time,
+            EXERCISE_STAGGER_MINUTES,
+        )
+
+    def _may_try(self, kind: str, valve: ValveTarget, now: datetime, wait) -> bool:
+        tried = self._maintenance_tried.get((kind, valve.device_id))
+        return tried is None or now - tried >= wait
+
+    def time_sync_due(self, valve: ValveTarget, now: datetime) -> bool:
+        """Catalogue §1.2: weekly, and at once when the valve reports a lost clock."""
+        if not valve.ieee or not self._may_try("time", valve, now, MAINTENANCE_RETRY):
+            return False
+        if CLOCK_LOST_ERROR in self.valve_errors(valve):
+            return True
+        record = self._sync_records.get(f"time:{valve.device_id}")
+        return record is None or now - record.succeeded_at >= TIME_SYNC_INTERVAL
+
+    def exercise_due(self, valve: ValveTarget, now: datetime) -> tuple[str, int] | None:
+        """The (day, minute) to write when the exercise differs from the plan."""
+        target = self.exercise_targets().get(valve.device_id)
+        if target is None or not self._may_try(
+            "exercise", valve, now, MAINTENANCE_RETRY
+        ):
+            return None
+        day = self.hass.states.get(valve.exercise_day_entity_id)
+        minute = self.hass.states.get(valve.exercise_time_entity_id)
+        if day is None or minute is None:
+            return None
+        if day.state == target[0] and _finite(minute.state) == target[1]:
+            return None
+        return target
+
+    def _adaptation_status(self, valve: ValveTarget) -> dict[str, Any] | None:
+        if valve.adaptation_status_entity_id is None:
+            return None
+        state = self.hass.states.get(valve.adaptation_status_entity_id)
+        return None if state is None else dict(state.attributes)
+
+    def adaptation_start_due(self, valve: ValveTarget, now: datetime) -> bool:
+        """Catalogue §1.6: start the run once heat has been available for a while.
+
+        Only for a valve that has not found its characteristic and is not running
+        an adaptation already, and at most once a day.
+        """
+        if not (self.adaptation_with_heat and valve.adaptation_control_entity_id):
+            return False
+        if (
+            self._heat_on_since is None
+            or now - self._heat_on_since < ADAPTATION_HEAT_DELAY
+        ):
+            return False
+        status = self._adaptation_status(valve)
+        if status is None or status.get("Valve_characteristic_found") is True:
+            return False
+        if status.get("In_progress") is True:
+            return False
+        return self._may_try("adaptation", valve, now, ADAPTATION_RETRY)
+
+    def nightly_adaptation_off_due(self, valve: ValveTarget, now: datetime) -> bool:
+        """With heat-led adaptation the valve's own nightly run is switched off."""
+        if not (self.adaptation_with_heat and self.heat_source_entity_id):
+            return False
+        if valve.adaptation_settings_entity_id is None:
+            return False
+        state = self.hass.states.get(valve.adaptation_settings_entity_id)
+        return (
+            state is not None
+            and state.state == STATE_ON
+            and self._may_try("adaptation_settings", valve, now, MAINTENANCE_RETRY)
+        )
+
+    @callback
+    def _schedule_maintenance(self, valve: ValveTarget, now: datetime) -> None:
+        """Queue due upkeep for one valve; battery writes run in the background."""
+        if valve.device_id in self._maintenance_running:
+            return
+        tasks: dict[str, Any] = {}
+        if self.time_sync_due(valve, now):
+            tasks["time"] = True
+        if exercise := self.exercise_due(valve, now):
+            tasks["exercise"] = exercise
+        if self.nightly_adaptation_off_due(valve, now):
+            tasks["adaptation_settings"] = True
+        if self.adaptation_start_due(valve, now):
+            tasks["adaptation"] = True
+        if not tasks:
+            return
+        for kind in tasks:
+            self._maintenance_tried[(kind, valve.device_id)] = now
+        self._maintenance_running.add(valve.device_id)
+        self._create_task(self._async_maintain_valve(valve, tasks, now))
+
+    async def _async_call(
+        self, domain: str, service: str, data: dict[str, Any]
+    ) -> bool:
+        try:
+            await self.hass.services.async_call(domain, service, data, blocking=True)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Danfoss upkeep %s.%s failed: %s", domain, service, err)
+            return False
+        return True
+
+    async def _async_maintain_valve(
+        self, valve: ValveTarget, tasks: dict[str, Any], now: datetime
+    ) -> None:
+        """Run one valve's due upkeep in order; each step is independent."""
+        try:
+            if tasks.get("time") and await self._async_write_time(valve, now):
+                self._sync_records[f"time:{valve.device_id}"] = SyncRecord(0.0, now)
+                if self._sync_state_store is not None:
+                    await self._sync_state_store.async_save(self._sync_records)
+            if exercise := tasks.get("exercise"):
+                day, minute = exercise
+                await self._async_call(
+                    "select",
+                    "select_option",
+                    {ATTR_ENTITY_ID: valve.exercise_day_entity_id, "option": day},
+                )
+                await self._async_call(
+                    "number",
+                    "set_value",
+                    {ATTR_ENTITY_ID: valve.exercise_time_entity_id, "value": minute},
+                )
+            if tasks.get("adaptation_settings"):
+                await self._async_call(
+                    "switch",
+                    SERVICE_TURN_OFF,
+                    {ATTR_ENTITY_ID: valve.adaptation_settings_entity_id},
+                )
+            if tasks.get("adaptation"):
+                await self._async_call(
+                    "select",
+                    "select_option",
+                    {
+                        ATTR_ENTITY_ID: valve.adaptation_control_entity_id,
+                        "option": "Initiate",
+                    },
+                )
+        finally:
+            self._maintenance_running.discard(valve.device_id)
+            self._notify_listeners()
+
+    async def _async_write_time(self, valve: ValveTarget, now: datetime) -> bool:
+        """Write the six Time cluster attributes of catalogue §1.2."""
+        tz = ZoneInfo(str(self.hass.config.time_zone))
+        for attribute, value in time_attributes(now, tz).items():
+            if not await self._async_call(
+                "zha",
+                "set_zigbee_cluster_attribute",
+                {
+                    "ieee": valve.ieee,
+                    "endpoint_id": 1,
+                    "cluster_id": 0x000A,
+                    "cluster_type": "in",
+                    "attribute": attribute,
+                    "value": value,
+                },
+            ):
+                return False
+        return True
+
     def valve_diagnostics(self, room: RoomDefinition) -> list[dict[str, Any]]:
         """Describe each valve's mode and last confirmed temperature write."""
         diagnostics: list[dict[str, Any]] = []
         for valve in room.valves:
             record = self._sync_records.get(valve.temperature_entity_id)
+            time_record = self._sync_records.get(f"time:{valve.device_id}")
             covered = self.valve_covered(valve)
             diagnostics.append(
                 {
@@ -1263,6 +1520,10 @@ class RoomCoordinator:
                     "external_temperature": valve.temperature_entity_id,
                     "external_window": valve.window_entity_id,
                     "heat_available": valve.heat_available_entity_id,
+                    "time_synced_at": time_record.succeeded_at.isoformat()
+                    if time_record
+                    else None,
+                    "exercise_target": self.exercise_targets().get(valve.device_id),
                     "online": self.valve_online(valve),
                     "errors": self.valve_errors(valve),
                     "mode": None
