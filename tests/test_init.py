@@ -700,3 +700,28 @@ async def test_house_demand_sensors_report_valves_and_floor_heating(
     assert hass.states.get(ids["house_heat_required"]).state == "on"
     rooms = hass.states.get(ids["house_rooms_with_demand"])
     assert rooms.state == "1" and rooms.attributes["rooms"] == ["Bath"]
+
+
+async def test_setup_tolerates_identifiers_with_more_than_two_parts(
+    hass: HomeAssistant, office
+) -> None:
+    """Some integrations register (domain, id, extra) identifiers; setup still works."""
+    other = MockConfigEntry(domain="other")
+    other.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=other.entry_id, identifiers={("other", "a", "b")}, name="Odd"
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": False,
+            "max_sensor_age_minutes": 120,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is config_entries.ConfigEntryState.LOADED
+    valve = entry.runtime_data.rooms[0].valves[0]
+    assert valve.ieee == "00:11"

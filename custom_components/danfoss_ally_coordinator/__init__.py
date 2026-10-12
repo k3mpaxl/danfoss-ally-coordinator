@@ -272,7 +272,7 @@ def _async_remove_orphans(
     current_areas = {HOUSE_ID, *(room.area_id for room in coordinator.rooms)}
     device_registry = dr.async_get(hass)
     for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
-        areas = {value for domain, value in device.identifiers if domain == DOMAIN}
+        areas = {ident[1] for ident in device.identifiers if ident[:1] == (DOMAIN,)}
         if areas and not areas & current_areas:
             device_registry.async_remove_device(device.id)
 
@@ -290,7 +290,7 @@ async def async_remove_config_entry_device(
         else set()
     )
     return not any(
-        domain == DOMAIN and value in current for domain, value in device.identifiers
+        ident[:1] == (DOMAIN,) and ident[1] in current for ident in device.identifiers
     )
 
 

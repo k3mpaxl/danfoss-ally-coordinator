@@ -327,7 +327,8 @@ async def async_discover_rooms(
             area_id=device.area_id,
             name=device.name_by_user or device.name,
             ieee=next(
-                (value for domain, value in device.identifiers if domain == "zha"),
+                # Identifiers are usually (domain, id); some integrations add more.
+                (ident[1] for ident in device.identifiers if ident[:1] == ("zha",)),
                 None,
             ),
         )
