@@ -49,7 +49,8 @@ class RoomWindowOpenSensor(DanfossAllyRoomEntity, BinarySensorEntity):
 class HouseHeatRequiredSensor(DanfossAllyHouseEntity, BinarySensorEntity):
     """On while a room asks for heat (valve "heat required" or a heating floor)."""
 
-    _attr_device_class = BinarySensorDeviceClass.HEAT
+    # No device class: "heat" would read hot/normal; the states are translated.
+    _attr_icon = "mdi:radiator"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "heat_required")

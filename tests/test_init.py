@@ -691,7 +691,8 @@ async def test_house_demand_sensors_report_valves_and_floor_heating(
         for e in er.async_entries_for_config_entry(entities, entry.entry_id)
     }
     assert hass.states.get(ids["house_heat_demand"]).state == "12.0"
-    assert hass.states.get(ids["house_heat_required"]).state == "off"
+    required = hass.states.get(ids["house_heat_required"])
+    assert required.state == "off" and "device_class" not in required.attributes
     assert hass.states.get(ids["house_rooms_with_demand"]).state == "0"
 
     hass.states.async_set(floor.entity_id, "heat", {"hvac_action": "heating"})

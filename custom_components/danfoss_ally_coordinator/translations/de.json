@@ -114,7 +114,11 @@
         "name": "Fenster geöffnet"
       },
       "heat_required": {
-        "name": "Ein Raum braucht Wärme"
+        "name": "Ein Raum braucht Wärme",
+        "state": {
+          "on": "Ja",
+          "off": "Nein"
+        }
       }
     },
     "switch": {
