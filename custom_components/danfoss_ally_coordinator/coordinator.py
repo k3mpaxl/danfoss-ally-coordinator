@@ -42,6 +42,8 @@ from .const import (
 from .discovery import RoomDefinition, ValveTarget
 from .maintenance import (
     CLOCK_LOST_ERROR,
+    FLOOR,
+    RADIATOR,
     DemandSource,
     HouseDemand,
     exercise_plan,
@@ -1319,17 +1321,17 @@ class RoomCoordinator:
                 ):
                     percent = _finite(state.state)
                 if required is not None or percent is not None:
-                    sources.append(DemandSource(room.name, required, percent))
+                    sources.append(DemandSource(room.name, RADIATOR, required, percent))
         for entity_id, room_name in self.demand_climates.items():
             state = self.hass.states.get(entity_id)
             if state is None or state.state == STATE_UNAVAILABLE:
                 continue
             heating = state.attributes.get("hvac_action") == "heating"
-            sources.append(DemandSource(room_name, heating, 100.0 if heating else 0.0))
+            sources.append(DemandSource(room_name, FLOOR, heating))
         return sources
 
     def house_demand(self) -> HouseDemand:
-        """Highest demand, whether any room needs heat, and which rooms do."""
+        """Radiator and floor-heating demand, apart and combined."""
         return house_demand(self._demand_sources())
 
     # -- Valve upkeep -------------------------------------------------------------

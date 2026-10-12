@@ -1607,11 +1607,11 @@ def test_house_demand_combines_valves_and_floor_heating() -> None:
         demand_climates={"climate.bath_floor": "Bad"},
     )
     demand = coordinator.house_demand()
-    assert (
-        demand.max_percent == 35 and demand.any_required and demand.rooms == ("Büro",)
-    )
+    assert demand.radiators_max_percent == 35 and demand.any_required
+    assert demand.floor_heating is False and demand.rooms_of("radiator") == ("Büro",)
 
     hass.states.set(state("climate.bath_floor", "heat", {"hvac_action": "heating"}))
     demand = coordinator.house_demand()
-    assert demand.max_percent == 100 and demand.rooms == ("Bad", "Büro")
+    assert demand.radiators_max_percent == 35  # the floor never adds a percentage
+    assert demand.floor_heating is True and demand.rooms_of("floor") == ("Bad",)
     assert "climate.bath_floor" in coordinator.demand_entity_ids()

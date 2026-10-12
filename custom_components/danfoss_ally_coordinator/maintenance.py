@@ -101,32 +101,80 @@ def exercise_plan(
     }
 
 
+#: Where a room's demand comes from.
+RADIATOR = "radiator"
+FLOOR = "floor"
+
+
 @dataclass(frozen=True, slots=True)
 class DemandSource:
-    """One room's heat demand as reported by a valve or a floor thermostat."""
+    """One room's heat demand: a Danfoss valve or a floor-heating thermostat."""
 
     room: str
+    kind: str  # RADIATOR or FLOOR
     required: bool | None
+    percent: float | None = None  # valves only (PI heating demand)
+
+
+@dataclass(frozen=True, slots=True)
+class RoomDemand:
+    """One room that asks for heat, and through which system."""
+
+    room: str
+    kind: str
     percent: float | None
 
 
 @dataclass(frozen=True, slots=True)
 class HouseDemand:
-    """House-wide heat demand: a signal only, nothing is switched by it."""
+    """House-wide heat demand, radiators and floor heating apart. Signal only."""
 
-    max_percent: float | None
+    radiators_max_percent: float | None
+    radiators_required: bool | None
+    floor_heating: bool | None
     any_required: bool | None
-    rooms: tuple[str, ...]
+    rooms: tuple[RoomDemand, ...]
+
+    def rooms_of(self, kind: str) -> tuple[str, ...]:
+        """The names of the rooms asking for heat through one system."""
+        return tuple(room.room for room in self.rooms if room.kind == kind)
+
+
+def _either(*values: bool | None) -> bool | None:
+    known = [value for value in values if value is not None]
+    return any(known) if known else None
 
 
 def house_demand(sources: Iterable[DemandSource]) -> HouseDemand:
-    """Aggregate room demand; unknown sources do not count either way."""
+    """Aggregate room demand per system; unknown sources do not count either way."""
     sources = tuple(sources)
-    known_percent = [s.percent for s in sources if s.percent is not None]
-    known_required = [s for s in sources if s.required is not None]
-    rooms = tuple(sorted({s.room for s in known_required if s.required}))
+    radiators = [s for s in sources if s.kind == RADIATOR]
+    floors = [s for s in sources if s.kind == FLOOR]
+    percents = [s.percent for s in radiators if s.percent is not None]
+    known_radiators = [s for s in radiators if s.required is not None]
+    known_floors = [s for s in floors if s.required is not None]
+    radiators_required = (
+        any(s.required for s in known_radiators) if known_radiators else None
+    )
+    floor_heating = any(s.required for s in known_floors) if known_floors else None
+
+    rooms: dict[tuple[str, str], float | None] = {}
+    for source in (*known_radiators, *known_floors):
+        if not source.required:
+            continue
+        key = (source.room, source.kind)
+        current = rooms.get(key)
+        if source.percent is not None and (current is None or source.percent > current):
+            rooms[key] = source.percent
+        else:
+            rooms.setdefault(key, current)
     return HouseDemand(
-        max_percent=max(known_percent) if known_percent else None,
-        any_required=bool(rooms) if known_required else None,
-        rooms=rooms,
+        radiators_max_percent=max(percents) if percents else None,
+        radiators_required=radiators_required,
+        floor_heating=floor_heating,
+        any_required=_either(radiators_required, floor_heating),
+        rooms=tuple(
+            RoomDemand(room, kind, percent)
+            for (room, kind), percent in sorted(rooms.items())
+        ),
     )

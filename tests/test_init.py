@@ -693,14 +693,21 @@ async def test_house_demand_sensors_report_valves_and_floor_heating(
     assert hass.states.get(ids["house_heat_demand"]).state == "12.0"
     required = hass.states.get(ids["house_heat_required"])
     assert required.state == "off" and "device_class" not in required.attributes
+    assert hass.states.get(ids["house_radiators_heat_required"]).state == "off"
+    assert hass.states.get(ids["house_floor_heating"]).state == "off"
     assert hass.states.get(ids["house_rooms_with_demand"]).state == "0"
 
     hass.states.async_set(floor.entity_id, "heat", {"hvac_action": "heating"})
     await hass.async_block_till_done()
-    assert hass.states.get(ids["house_heat_demand"]).state == "100.0"
+    assert hass.states.get(ids["house_heat_demand"]).state == "12.0"  # valves only
     assert hass.states.get(ids["house_heat_required"]).state == "on"
+    assert hass.states.get(ids["house_radiators_heat_required"]).state == "off"
+    floor_state = hass.states.get(ids["house_floor_heating"])
+    assert floor_state.state == "on" and floor_state.attributes["rooms"] == ["Bath"]
     rooms = hass.states.get(ids["house_rooms_with_demand"])
-    assert rooms.state == "1" and rooms.attributes["rooms"] == ["Bath"]
+    assert rooms.state == "1"
+    assert rooms.attributes["rooms"] == ["Bath (floor heating)"]
+    assert rooms.attributes["floor_heating_rooms"] == ["Bath"]
 
 
 async def test_setup_tolerates_identifiers_with_more_than_two_parts(

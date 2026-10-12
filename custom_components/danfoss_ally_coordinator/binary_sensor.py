@@ -11,6 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import DanfossAllyConfigEntry
 from .entity import DanfossAllyRoomEntity
 from .house import DanfossAllyHouseEntity
+from .maintenance import FLOOR, RADIATOR
 
 
 async def async_setup_entry(
@@ -22,7 +23,13 @@ async def async_setup_entry(
         RoomWindowOpenSensor(coordinator, room) for room in coordinator.rooms
     )
     if coordinator.demand_entity_ids():
-        async_add_entities([HouseHeatRequiredSensor(coordinator)])
+        house = [
+            HouseHeatRequiredSensor(coordinator),
+            HouseRadiatorsRequiredSensor(coordinator),
+        ]
+        if coordinator.demand_climates:
+            house.append(HouseFloorHeatingSensor(coordinator))
+        async_add_entities(house)
 
 
 class RoomWindowOpenSensor(DanfossAllyRoomEntity, BinarySensorEntity):
@@ -47,10 +54,10 @@ class RoomWindowOpenSensor(DanfossAllyRoomEntity, BinarySensorEntity):
 
 
 class HouseHeatRequiredSensor(DanfossAllyHouseEntity, BinarySensorEntity):
-    """On while a room asks for heat (valve "heat required" or a heating floor)."""
+    """On while any room asks for heat - radiators or floor heating."""
 
     # No device class: "heat" would read hot/normal; the states are translated.
-    _attr_icon = "mdi:radiator"
+    _attr_icon = "mdi:home-thermometer"
 
     def __init__(self, coordinator) -> None:
         super().__init__(coordinator, "heat_required")
@@ -59,6 +66,36 @@ class HouseHeatRequiredSensor(DanfossAllyHouseEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         return self.coordinator.house_demand().any_required
 
+
+class HouseRadiatorsRequiredSensor(DanfossAllyHouseEntity, BinarySensorEntity):
+    """On while a Danfoss valve reports heat required."""
+
+    _attr_icon = "mdi:radiator"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "radiators_heat_required")
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.house_demand().radiators_required
+
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        return {"rooms": list(self.coordinator.house_demand().rooms)}
+        return {"rooms": list(self.coordinator.house_demand().rooms_of(RADIATOR))}
+
+
+class HouseFloorHeatingSensor(DanfossAllyHouseEntity, BinarySensorEntity):
+    """On while a configured floor-heating thermostat is heating."""
+
+    _attr_icon = "mdi:heating-coil"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "floor_heating")
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.house_demand().floor_heating
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {"rooms": list(self.coordinator.house_demand().rooms_of(FLOOR))}

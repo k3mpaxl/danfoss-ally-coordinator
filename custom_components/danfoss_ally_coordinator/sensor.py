@@ -14,6 +14,7 @@ from . import DanfossAllyConfigEntry
 from .discovery import ValveTarget
 from .entity import DanfossAllyRoomEntity
 from .house import DanfossAllyHouseEntity
+from .maintenance import FLOOR, RADIATOR
 
 
 async def async_setup_entry(
@@ -137,7 +138,7 @@ class LocalTemperatureGapSensor(DanfossAllyRoomEntity, SensorEntity):
 
 
 class HouseHeatDemandSensor(DanfossAllyHouseEntity, SensorEntity):
-    """Highest heat demand of any room (valve PI demand; heating floor = 100 %)."""
+    """Highest PI heating demand of the Danfoss valves (radiators only)."""
 
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -148,7 +149,7 @@ class HouseHeatDemandSensor(DanfossAllyHouseEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        return self.coordinator.house_demand().max_percent
+        return self.coordinator.house_demand().radiators_max_percent
 
 
 class HouseRoomsWithDemandSensor(DanfossAllyHouseEntity, SensorEntity):
@@ -163,8 +164,26 @@ class HouseRoomsWithDemandSensor(DanfossAllyHouseEntity, SensorEntity):
     @property
     def native_value(self) -> int | None:
         demand = self.coordinator.house_demand()
-        return None if demand.any_required is None else len(demand.rooms)
+        return (
+            None if demand.any_required is None else len({r.room for r in demand.rooms})
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        return {"rooms": list(self.coordinator.house_demand().rooms)}
+        german = str(self.hass.config.language).startswith("de")
+        labels = (
+            {RADIATOR: "Heizkörper", FLOOR: "Fußbodenheizung"}
+            if german
+            else {RADIATOR: "radiator", FLOOR: "floor heating"}
+        )
+        demand = self.coordinator.house_demand()
+        return {
+            "rooms": [
+                f"{room.room} ({labels[room.kind]}"
+                + (f" {room.percent:.0f} %" if room.percent is not None else "")
+                + ")"
+                for room in demand.rooms
+            ],
+            "radiator_rooms": list(demand.rooms_of(RADIATOR)),
+            "floor_heating_rooms": list(demand.rooms_of(FLOOR)),
+        }

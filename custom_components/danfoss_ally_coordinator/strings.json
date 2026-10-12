@@ -32,7 +32,7 @@
           "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart.",
           "heat_source": "Optional: a binary sensor that is on while the heating system supplies heat, for example the ECL Comfort 310's 'Heat available'. It is forwarded to every coordinated valve as HeatAvailable (Danfoss catalogue §2.7): without heat the valves switch to boiler mode and stop requesting heat the system is not supplying. Empty = not used.",
           "adaptation_with_heat": "The valves' own nightly adaptation run is switched off. Instead the coordinator starts it once the heat source has reported heat for 30 minutes - only on valves that have not learned their valve characteristic and are not running one (Danfoss catalogue §1.6). Needs 'Heat available from'.",
-          "demand_climates": "Thermostats (e.g. floor heating) whose action 'heating' counts as room demand in the house sensors. The house sensors only report; nothing is switched by them.",
+          "demand_climates": "Floor-heating (or other) thermostats. They get their own sensor on the house device ('Floor heating is heating') and count in 'A room needs heat' and 'Rooms with heat demand'. The valve demand in % stays Danfoss-only. Nothing is switched by these sensors.",
           "exercise_day": "All coordinated valves exercise (move once to prevent sticking, catalogue §3.7) on this day, staggered by 10 minutes from the start time. 'Off' leaves the valves' own setting.",
           "exercise_time": "Start time of the first valve; each further valve follows 10 minutes later."
         }
@@ -78,7 +78,7 @@
           "startup_delay_minutes": "No valve is written until this time has passed after a restart, so the Zigbee network can re-form. Temperature sensors are only used again once they have reported after the restart.",
           "heat_source": "Optional: a binary sensor that is on while the heating system supplies heat, for example the ECL Comfort 310's 'Heat available'. It is forwarded to every coordinated valve as HeatAvailable (Danfoss catalogue §2.7): without heat the valves switch to boiler mode and stop requesting heat the system is not supplying. Empty = not used.",
           "adaptation_with_heat": "The valves' own nightly adaptation run is switched off. Instead the coordinator starts it once the heat source has reported heat for 30 minutes - only on valves that have not learned their valve characteristic and are not running one (Danfoss catalogue §1.6). Needs 'Heat available from'.",
-          "demand_climates": "Thermostats (e.g. floor heating) whose action 'heating' counts as room demand in the house sensors. The house sensors only report; nothing is switched by them.",
+          "demand_climates": "Floor-heating (or other) thermostats. They get their own sensor on the house device ('Floor heating is heating') and count in 'A room needs heat' and 'Rooms with heat demand'. The valve demand in % stays Danfoss-only. Nothing is switched by these sensors.",
           "exercise_day": "All coordinated valves exercise (move once to prevent sticking, catalogue §3.7) on this day, staggered by 10 minutes from the start time. 'Off' leaves the valves' own setting.",
           "exercise_time": "Start time of the first valve; each further valve follows 10 minutes later."
         }
@@ -103,7 +103,7 @@
         "name": "{valve} temperature gap"
       },
       "heat_demand": {
-        "name": "Highest heat demand"
+        "name": "Highest valve demand"
       },
       "rooms_with_demand": {
         "name": "Rooms with heat demand"
@@ -115,6 +115,20 @@
       },
       "heat_required": {
         "name": "A room needs heat",
+        "state": {
+          "on": "Yes",
+          "off": "No"
+        }
+      },
+      "radiators_heat_required": {
+        "name": "Radiators need heat",
+        "state": {
+          "on": "Yes",
+          "off": "No"
+        }
+      },
+      "floor_heating": {
+        "name": "Floor heating is heating",
         "state": {
           "on": "Yes",
           "off": "No"

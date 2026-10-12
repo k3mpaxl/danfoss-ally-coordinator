@@ -32,7 +32,7 @@
           "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben.",
           "heat_source": "Optional: ein Sensor, der an ist, solange die Heizung Wärme liefert – zum Beispiel „Wärme verfügbar“ der ECL Comfort 310. Er wird an alle koordinierten Ventile als „Wärme verfügbar“ (HeatAvailable, Danfoss-Katalog §2.7) weitergegeben: Ohne Wärme schalten die Ventile in den Kesselmodus und fordern keine Wärme an, die gar nicht geliefert wird. Leer = nicht genutzt.",
           "adaptation_with_heat": "Der nächtliche Anpassungslauf der Ventile wird abgeschaltet. Stattdessen startet der Coordinator ihn, sobald die Wärmequelle 30 Minuten Wärme meldet – nur bei Ventilen, die ihre Ventilkennlinie noch nicht gelernt haben und gerade keinen Lauf machen (Danfoss-Katalog §1.6). Braucht „Wärme verfügbar von“.",
-          "demand_climates": "Thermostate (z. B. Fußbodenheizung), deren Aktion „Heizen“ in den Haus-Sensoren als Raumbedarf zählt. Die Haus-Sensoren melden nur, sie schalten nichts.",
+          "demand_climates": "Thermostate der Fußbodenheizung (oder andere). Sie bekommen am Haus-Gerät einen eigenen Sensor („Fußbodenheizung heizt“) und zählen bei „Ein Raum braucht Wärme“ und „Räume mit Wärmebedarf“ mit. Der Ventilbedarf in % bleibt nur Danfoss. Diese Sensoren schalten nichts.",
           "exercise_day": "Alle koordinierten Ventile bewegen sich an diesem Tag einmal gegen Festsitzen (Katalog §3.7), ab der Startzeit im Abstand von 10 Minuten. „Aus“ lässt die Einstellung der Ventile unverändert.",
           "exercise_time": "Startzeit des ersten Ventils; jedes weitere folgt 10 Minuten später."
         }
@@ -78,7 +78,7 @@
           "startup_delay_minutes": "Nach einem Neustart wird erst nach dieser Zeit wieder an Ventile geschrieben, damit sich das Zigbee-Netz neu aufbauen kann. Temperatursensoren zählen erst wieder, wenn sie sich nach dem Neustart gemeldet haben.",
           "heat_source": "Optional: ein Sensor, der an ist, solange die Heizung Wärme liefert – zum Beispiel „Wärme verfügbar“ der ECL Comfort 310. Er wird an alle koordinierten Ventile als „Wärme verfügbar“ (HeatAvailable, Danfoss-Katalog §2.7) weitergegeben: Ohne Wärme schalten die Ventile in den Kesselmodus und fordern keine Wärme an, die gar nicht geliefert wird. Leer = nicht genutzt.",
           "adaptation_with_heat": "Der nächtliche Anpassungslauf der Ventile wird abgeschaltet. Stattdessen startet der Coordinator ihn, sobald die Wärmequelle 30 Minuten Wärme meldet – nur bei Ventilen, die ihre Ventilkennlinie noch nicht gelernt haben und gerade keinen Lauf machen (Danfoss-Katalog §1.6). Braucht „Wärme verfügbar von“.",
-          "demand_climates": "Thermostate (z. B. Fußbodenheizung), deren Aktion „Heizen“ in den Haus-Sensoren als Raumbedarf zählt. Die Haus-Sensoren melden nur, sie schalten nichts.",
+          "demand_climates": "Thermostate der Fußbodenheizung (oder andere). Sie bekommen am Haus-Gerät einen eigenen Sensor („Fußbodenheizung heizt“) und zählen bei „Ein Raum braucht Wärme“ und „Räume mit Wärmebedarf“ mit. Der Ventilbedarf in % bleibt nur Danfoss. Diese Sensoren schalten nichts.",
           "exercise_day": "Alle koordinierten Ventile bewegen sich an diesem Tag einmal gegen Festsitzen (Katalog §3.7), ab der Startzeit im Abstand von 10 Minuten. „Aus“ lässt die Einstellung der Ventile unverändert.",
           "exercise_time": "Startzeit des ersten Ventils; jedes weitere folgt 10 Minuten später."
         }
@@ -103,7 +103,7 @@
         "name": "{valve} Abweichung zur Raumtemperatur"
       },
       "heat_demand": {
-        "name": "Höchster Wärmebedarf"
+        "name": "Höchster Ventilbedarf"
       },
       "rooms_with_demand": {
         "name": "Räume mit Wärmebedarf"
@@ -115,6 +115,20 @@
       },
       "heat_required": {
         "name": "Ein Raum braucht Wärme",
+        "state": {
+          "on": "Ja",
+          "off": "Nein"
+        }
+      },
+      "radiators_heat_required": {
+        "name": "Heizkörper brauchen Wärme",
+        "state": {
+          "on": "Ja",
+          "off": "Nein"
+        }
+      },
+      "floor_heating": {
+        "name": "Fußbodenheizung heizt",
         "state": {
           "on": "Ja",
           "off": "Nein"
