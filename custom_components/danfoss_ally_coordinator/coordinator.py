@@ -21,7 +21,7 @@ from homeassistant.const import (
     STATE_UNAVAILABLE,
 )
 from homeassistant.core import HomeAssistant, State, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
@@ -38,6 +38,8 @@ from .const import (
     LOCAL_EVALUATION_INTERVAL,
     MAINTENANCE_RETRY,
     TIME_SYNC_INTERVAL,
+    VALVE_PAUSE,
+    VALVE_PAUSE_MAX,
 )
 from .discovery import RoomDefinition, ValveTarget
 from .maintenance import (
@@ -128,6 +130,8 @@ class RoomStatus:
     unavailable_window_contacts: tuple[str, ...] = ()
     room_load_mean: int | None = None
     offline_valves: tuple[str, ...] = ()
+    # Valves paused after a write they did not answer.
+    unresponsive_valves: tuple[str, ...] = ()
     last_error: str | None = None
     last_reason: str | None = None
     evaluated_at: datetime | None = None
@@ -206,6 +210,11 @@ class RoomCoordinator:
         self._unsubscribers: list[Callable[[], None]] = []
         self._tasks: set[asyncio.Task] = set()
         self._evaluation_lock = asyncio.Lock()
+        # Mirroring a setpoint is a person's action; it must not queue behind a
+        # slow evaluation write to some other valve.
+        self._setpoint_lock = asyncio.Lock()
+        # device_id -> (paused until, length of that pause)
+        self._valve_pauses: dict[str, tuple[datetime, timedelta]] = {}
         self._evaluation_queued = False
         self._started = False
         self._index_entities()
@@ -372,6 +381,34 @@ class RoomCoordinator:
         state = self.hass.states.get(entity_id)
         return state is None or state.state != STATE_UNAVAILABLE
 
+    def valve_paused_until(
+        self, valve: ValveTarget, now: datetime | None = None
+    ) -> datetime | None:
+        """Until when writes skip a valve that did not answer the last one."""
+        pause = self._valve_pauses.get(valve.device_id)
+        if pause is None or (now is not None and now >= pause[0]):
+            return None
+        return pause[0]
+
+    def _valve_did_not_respond(self, valve: ValveTarget, now: datetime) -> None:
+        """Pause a silent valve; each further silent try doubles the pause."""
+        previous = self._valve_pauses.get(valve.device_id)
+        length = (
+            VALVE_PAUSE if previous is None else min(previous[1] * 2, VALVE_PAUSE_MAX)
+        )
+        self._valve_pauses[valve.device_id] = (now + length, length)
+
+    def _valve_responded(self, valve: ValveTarget) -> None:
+        self._valve_pauses.pop(valve.device_id, None)
+
+    def _note_write_error(
+        self, valve: ValveTarget, err: HomeAssistantError, now: datetime
+    ) -> None:
+        """A refused value is the valve answering; anything else is silence."""
+        if isinstance(err, ServiceValidationError):
+            return
+        self._valve_did_not_respond(valve, now)
+
     def valve_errors(self, valve: ValveTarget) -> list[str]:
         """Active bits of the valve's error code (0x0B05/0x4000), e.g. a lost clock.
 
@@ -472,7 +509,7 @@ class RoomCoordinator:
             return
         if not self.setpoint_sync_enabled(room):
             return
-        async with self._evaluation_lock:
+        async with self._setpoint_lock:
             status = self.statuses[room.area_id]
             for valve in room.valves:
                 if valve is source or valve.climate_entity_id is None:
@@ -503,9 +540,15 @@ class RoomCoordinator:
                     )
                 except HomeAssistantError as err:
                     self._expected_setpoint_echoes.pop(valve.climate_entity_id, None)
+                    self._note_write_error(valve, err, dt_util.utcnow())
                     status.last_error = f"{valve.climate_entity_id}: {err}"
-                    _LOGGER.warning("Danfoss setpoint mirroring failed: %s", err)
+                    _LOGGER.warning(
+                        "Danfoss setpoint mirroring to %s failed: %s",
+                        valve.climate_entity_id,
+                        err,
+                    )
                     continue
+                self._valve_responded(valve)
                 readback = _setpoint(self.hass.states.get(valve.climate_entity_id))
                 if readback is None or abs(readback - peer_value) >= 0.05:
                     # Keep the echo expectation: the valve may still apply it late.
@@ -986,6 +1029,7 @@ class RoomCoordinator:
             for valve in room.valves
             if not self.valve_online(valve)
         )
+        status.unresponsive_valves = self._paused_valve_names(room, now)
         status.last_error = None
         status.last_reason = reason
         status.evaluated_at = now
@@ -999,19 +1043,45 @@ class RoomCoordinator:
             if not self.valve_online(valve):
                 # Not reachable (e.g. mesh still re-forming): retry next round.
                 continue
-            if self.sync_temperature and mean is not None:
+            # Each write is skipped once an earlier one went unanswered.
+            if (
+                self.sync_temperature
+                and mean is not None
+                and self._writable(valve, now)
+            ):
                 await self._async_push_temperature(status, valve, mean, now)
-            if self.sync_windows and window_open is not None:
-                await self._async_push_window(status, valve, window_open)
-            if heat is not None and valve.heat_available_entity_id:
+            if (
+                self.sync_windows
+                and window_open is not None
+                and self._writable(valve, now)
+            ):
+                await self._async_push_window(status, valve, window_open, now)
+            if (
+                heat is not None
+                and valve.heat_available_entity_id
+                and self._writable(valve, now)
+            ):
                 await self._async_push_heat_available(status, valve, heat, now)
-            if self._started:
+            if self._started and self._writable(valve, now):
                 self._schedule_maintenance(valve, now)
 
         if self.load_balancing_active(room):
             await self._async_balance_load(room, status, now)
 
+        status.unresponsive_valves = self._paused_valve_names(room, now)
         self._notify_listeners()
+
+    def _writable(self, valve: ValveTarget, now: datetime) -> bool:
+        return self.valve_paused_until(valve, now) is None
+
+    def _paused_valve_names(
+        self, room: RoomDefinition, now: datetime
+    ) -> tuple[str, ...]:
+        return tuple(
+            valve.climate_entity_id or valve.temperature_entity_id
+            for valve in room.valves
+            if not self._writable(valve, now)
+        )
 
     def load_balancing_valves(self, room: RoomDefinition) -> list[ValveTarget]:
         """Valves whose ZHA entities support room load balancing."""
@@ -1071,17 +1141,17 @@ class RoomCoordinator:
             # Without a valid estimate the valves return to normal after 90 min.
             return
         for valve in self.load_balancing_valves(room):
-            if not self.valve_online(valve):
+            if not self.valve_online(valve) or not self._writable(valve, now):
                 continue
             sent_at = self._load_sent_at.get(valve.load_room_mean_entity_id)
             if sent_at is not None and now - sent_at < LOAD_SEND_INTERVAL:
                 continue
             if not await self._async_ensure_switch_on(
-                status, valve.load_balancing_enable_entity_id
+                status, valve, valve.load_balancing_enable_entity_id, now
             ):
                 continue
             if await self._async_set_number(
-                status, valve.load_room_mean_entity_id, mean, tolerance=0.5
+                status, valve, valve.load_room_mean_entity_id, mean, now, tolerance=0.5
             ):
                 self._load_sent_at[valve.load_room_mean_entity_id] = now
 
@@ -1097,7 +1167,12 @@ class RoomCoordinator:
                 (value := _finite(state.state)) is not None and value != LOAD_INVALID
             ):
                 await self._async_set_number(
-                    status, valve.load_room_mean_entity_id, LOAD_INVALID, tolerance=0.5
+                    status,
+                    valve,
+                    valve.load_room_mean_entity_id,
+                    LOAD_INVALID,
+                    dt_util.utcnow(),
+                    tolerance=0.5,
                 )
             switch = self.hass.states.get(valve.load_balancing_enable_entity_id)
             if switch is not None and switch.state == STATE_OFF:
@@ -1110,9 +1185,15 @@ class RoomCoordinator:
                     blocking=True,
                 )
             except HomeAssistantError as err:
+                self._note_write_error(valve, err, dt_util.utcnow())
                 status.last_error = f"{valve.load_balancing_enable_entity_id}: {err}"
-                _LOGGER.warning("Danfoss load disable failed: %s", err)
+                _LOGGER.warning(
+                    "Danfoss load disable of %s failed: %s",
+                    valve.load_balancing_enable_entity_id,
+                    err,
+                )
                 continue
+            self._valve_responded(valve)
             readback = self.hass.states.get(valve.load_balancing_enable_entity_id)
             if readback is None or readback.state != STATE_OFF:
                 status.last_error = (
@@ -1123,7 +1204,9 @@ class RoomCoordinator:
                     "Danfoss load disable readback mismatch: %s", status.last_error
                 )
 
-    async def _async_ensure_switch_on(self, status: RoomStatus, entity_id: str) -> bool:
+    async def _async_ensure_switch_on(
+        self, status: RoomStatus, valve: ValveTarget, entity_id: str, now: datetime
+    ) -> bool:
         """Turn a valve setting on if needed and confirm it."""
         state = self.hass.states.get(entity_id)
         if state is not None and state.state == STATE_ON:
@@ -1133,9 +1216,11 @@ class RoomCoordinator:
                 "switch", SERVICE_TURN_ON, {ATTR_ENTITY_ID: entity_id}, blocking=True
             )
         except HomeAssistantError as err:
+            self._note_write_error(valve, err, now)
             status.last_error = f"{entity_id}: {err}"
-            _LOGGER.warning("Danfoss switch write failed: %s", err)
+            _LOGGER.warning("Danfoss switch write to %s failed: %s", entity_id, err)
             return False
+        self._valve_responded(valve)
         readback = self.hass.states.get(entity_id)
         if readback is None or readback.state != STATE_ON:
             status.last_error = f"{entity_id}: readback mismatch (expected on)"
@@ -1144,7 +1229,14 @@ class RoomCoordinator:
         return True
 
     async def _async_set_number(
-        self, status: RoomStatus, entity_id: str, value: float, *, tolerance: float
+        self,
+        status: RoomStatus,
+        valve: ValveTarget,
+        entity_id: str,
+        value: float,
+        now: datetime,
+        *,
+        tolerance: float,
     ) -> bool:
         """Write one number entity and confirm the reported value."""
         try:
@@ -1155,9 +1247,11 @@ class RoomCoordinator:
                 blocking=True,
             )
         except HomeAssistantError as err:
+            self._note_write_error(valve, err, now)
             status.last_error = f"{entity_id}: {err}"
-            _LOGGER.warning("Danfoss number write failed: %s", err)
+            _LOGGER.warning("Danfoss number write to %s failed: %s", entity_id, err)
             return False
+        self._valve_responded(valve)
         state = self.hass.states.get(entity_id)
         readback = _finite(state.state) if state is not None else None
         if readback is None or abs(readback - value) > tolerance:
@@ -1206,9 +1300,15 @@ class RoomCoordinator:
                 blocking=True,
             )
         except HomeAssistantError as err:
+            self._note_write_error(valve, err, now)
             status.last_error = f"{valve.temperature_entity_id}: {err}"
-            _LOGGER.warning("Danfoss temperature sync failed: %s", err)
+            _LOGGER.warning(
+                "Danfoss temperature sync to %s failed: %s",
+                valve.temperature_entity_id,
+                err,
+            )
             return
+        self._valve_responded(valve)
         state = self.hass.states.get(valve.temperature_entity_id)
         readback = _finite(state.state) if state is not None else None
         if readback is None or abs(readback - sent_value) > 0.05:
@@ -1225,7 +1325,7 @@ class RoomCoordinator:
         )
 
     async def _async_push_window(
-        self, status: RoomStatus, valve: ValveTarget, window_open: bool
+        self, status: RoomStatus, valve: ValveTarget, window_open: bool, now: datetime
     ) -> None:
         """Set one valve's external window signal to the room aggregate."""
         desired_state = STATE_ON if window_open else STATE_OFF
@@ -1240,9 +1340,13 @@ class RoomCoordinator:
                 blocking=True,
             )
         except HomeAssistantError as err:
+            self._note_write_error(valve, err, now)
             status.last_error = f"{valve.window_entity_id}: {err}"
-            _LOGGER.warning("Danfoss window sync failed: %s", err)
+            _LOGGER.warning(
+                "Danfoss window sync to %s failed: %s", valve.window_entity_id, err
+            )
             return
+        self._valve_responded(valve)
         readback = self.hass.states.get(valve.window_entity_id)
         if readback is None or readback.state != desired_state:
             status.last_error = (
@@ -1280,9 +1384,13 @@ class RoomCoordinator:
                 blocking=True,
             )
         except HomeAssistantError as err:
+            self._note_write_error(valve, err, now)
             status.last_error = f"{entity_id}: {err}"
-            _LOGGER.warning("Danfoss heat-available write failed: %s", err)
+            _LOGGER.warning(
+                "Danfoss heat-available write to %s failed: %s", entity_id, err
+            )
             return
+        self._valve_responded(valve)
         readback = self.hass.states.get(entity_id)
         if readback is None or readback.state != desired_state:
             status.last_error = (
@@ -1441,13 +1549,23 @@ class RoomCoordinator:
         self._create_task(self._async_maintain_valve(valve, tasks, now))
 
     async def _async_call(
-        self, domain: str, service: str, data: dict[str, Any]
+        self, valve: ValveTarget, domain: str, service: str, data: dict[str, Any]
     ) -> bool:
+        if not self._writable(valve, dt_util.utcnow()):
+            return False
         try:
             await self.hass.services.async_call(domain, service, data, blocking=True)
         except HomeAssistantError as err:
-            _LOGGER.warning("Danfoss upkeep %s.%s failed: %s", domain, service, err)
+            self._note_write_error(valve, err, dt_util.utcnow())
+            _LOGGER.warning(
+                "Danfoss upkeep %s.%s for %s failed: %s",
+                domain,
+                service,
+                valve.name or valve.device_id,
+                err,
+            )
             return False
+        self._valve_responded(valve)
         return True
 
     async def _async_maintain_valve(
@@ -1462,23 +1580,27 @@ class RoomCoordinator:
             if exercise := tasks.get("exercise"):
                 day, minute = exercise
                 await self._async_call(
+                    valve,
                     "select",
                     "select_option",
                     {ATTR_ENTITY_ID: valve.exercise_day_entity_id, "option": day},
                 )
                 await self._async_call(
+                    valve,
                     "number",
                     "set_value",
                     {ATTR_ENTITY_ID: valve.exercise_time_entity_id, "value": minute},
                 )
             if tasks.get("adaptation_settings"):
                 await self._async_call(
+                    valve,
                     "switch",
                     SERVICE_TURN_OFF,
                     {ATTR_ENTITY_ID: valve.adaptation_settings_entity_id},
                 )
             if tasks.get("adaptation"):
                 await self._async_call(
+                    valve,
                     "select",
                     "select_option",
                     {
@@ -1495,6 +1617,7 @@ class RoomCoordinator:
         tz = ZoneInfo(str(self.hass.config.time_zone))
         for attribute, value in time_attributes(now, tz).items():
             if not await self._async_call(
+                valve,
                 "zha",
                 "set_zigbee_cluster_attribute",
                 {
@@ -1527,6 +1650,9 @@ class RoomCoordinator:
                     else None,
                     "exercise_target": self.exercise_targets().get(valve.device_id),
                     "online": self.valve_online(valve),
+                    "paused_until": paused.isoformat()
+                    if (paused := self.valve_paused_until(valve))
+                    else None,
                     "errors": self.valve_errors(valve),
                     "mode": None
                     if covered is None

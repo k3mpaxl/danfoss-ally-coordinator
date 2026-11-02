@@ -1615,3 +1615,157 @@ def test_house_demand_combines_valves_and_floor_heating() -> None:
     assert demand.radiators_max_percent == 35  # the floor never adds a percentage
     assert demand.floor_heating is True and demand.rooms_of("floor") == ("Bad",)
     assert "climate.bath_floor" in coordinator.demand_entity_ids()
+
+
+def _quiet_setup():
+    """One valve with a room sensor and an open door, so every round writes."""
+    room = RoomDefinition(
+        "office",
+        "Office",
+        (
+            ValveTarget(
+                "one",
+                "number.one",
+                "switch.one",
+                climate_entity_id="climate.one",
+                heat_available_entity_id="switch.one_heat",
+            ),
+        ),
+        ("sensor.room",),
+        ("binary_sensor.door",),
+    )
+    hass = FakeHass(
+        {
+            "sensor.room": state("sensor.room", "21.0", CELSIUS),
+            "binary_sensor.door": state("binary_sensor.door", "on"),
+            "binary_sensor.heat": state("binary_sensor.heat", "on"),
+            "climate.one": state("climate.one", "heat", {"temperature": 20.0}),
+            "switch.one": state("switch.one", "off"),
+            "switch.one_heat": state("switch.one_heat", "off"),
+        }
+    )
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(room,),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+        heat_source_entity_id="binary_sensor.heat",
+    )
+    return room, hass, coordinator
+
+
+def test_valve_that_does_not_answer_is_paused_with_growing_backoff() -> None:
+    """A valve that stops answering costs one timeout, not one per write.
+
+    2026-11-01: one valve answered no write for hours; each try took ~70 s and
+    held up every other room, so a setpoint change in another room waited.
+    """
+    room, hass, coordinator = _quiet_setup()
+    original = hass.services.async_call
+
+    async def silent(domain, service, data, *, blocking):
+        hass.services.calls.append((domain, service, data, blocking))
+        raise HomeAssistantError("Failed to send request: device did not respond")
+
+    hass.services.async_call = silent
+    evaluate(coordinator)
+    # The first failing write pauses the valve: window and heat are not tried.
+    assert written(hass) == ["number.one"]
+    status = coordinator.statuses["office"]
+    assert status.unresponsive_valves == ("climate.one",)
+    assert "number.one" in status.last_error
+    assert (
+        coordinator.valve_diagnostics(room)[0]["paused_until"]
+        == (NOW + timedelta(minutes=5)).isoformat()
+    )
+
+    asyncio.run(
+        coordinator.async_evaluate_all(now=NOW + timedelta(minutes=4), reason="cadence")
+    )
+    assert written(hass) == ["number.one"]
+
+    # Next try after 5 min fails again: the pause doubles.
+    asyncio.run(
+        coordinator.async_evaluate_all(now=NOW + timedelta(minutes=5), reason="cadence")
+    )
+    assert written(hass) == ["number.one", "number.one"]
+    assert (
+        coordinator.valve_diagnostics(room)[0]["paused_until"]
+        == (NOW + timedelta(minutes=15)).isoformat()
+    )
+
+    # Answering again ends the pause and the round writes everything.
+    hass.services.async_call = original
+    asyncio.run(
+        coordinator.async_evaluate_all(
+            now=NOW + timedelta(minutes=15), reason="cadence"
+        )
+    )
+    assert written(hass)[2:] == ["number.one", "switch.one", "switch.one_heat"]
+    assert coordinator.statuses["office"].unresponsive_valves == ()
+    assert coordinator.valve_diagnostics(room)[0]["paused_until"] is None
+
+
+def test_valve_pause_never_exceeds_an_hour() -> None:
+    room, hass, coordinator = _quiet_setup()
+    for _ in range(10):
+        coordinator._valve_did_not_respond(room.valves[0], NOW)
+    assert (
+        coordinator.valve_diagnostics(room)[0]["paused_until"]
+        == (NOW + timedelta(hours=1)).isoformat()
+    )
+
+
+def test_invalid_value_does_not_pause_the_valve() -> None:
+    """A refused value is not a radio problem; the valve keeps being written."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    room, hass, coordinator = _quiet_setup()
+    original = hass.services.async_call
+
+    async def refuse_number(domain, service, data, *, blocking):
+        if domain == "number":
+            hass.services.calls.append((domain, service, data, blocking))
+            raise ServiceValidationError("value out of range")
+        await original(domain, service, data, blocking=blocking)
+
+    hass.services.async_call = refuse_number
+    evaluate(coordinator)
+    assert written(hass) == ["number.one", "switch.one", "switch.one_heat"]
+    assert coordinator.statuses["office"].unresponsive_valves == ()
+
+
+def test_setpoint_sync_does_not_wait_for_a_slow_valve_write() -> None:
+    """Turning one valve reaches the other at once, even while another valve
+    in the house is being written and its write holds the evaluation."""
+    hass = _sync_hass()
+    coordinator = _sync_coordinator(hass)
+
+    async def run() -> None:
+        await coordinator._evaluation_lock.acquire()  # a slow write elsewhere
+        try:
+            await asyncio.wait_for(
+                coordinator.async_handle_setpoint_change(
+                    "climate.one",
+                    state("climate.one", "heat", {"temperature": 20.0}),
+                    state("climate.one", "heat", {"temperature": 21.0}),
+                ),
+                timeout=1,
+            )
+        finally:
+            coordinator._evaluation_lock.release()
+
+    asyncio.run(run())
+    assert hass.states.get("climate.two").attributes["temperature"] == 21.0
+
+
+def test_setpoint_sync_still_tries_a_paused_valve_and_ends_its_pause() -> None:
+    """A person turned the dial: the peer is tried even while paused."""
+    hass = _sync_hass()
+    coordinator = _sync_coordinator(hass)
+    two = coordinator.rooms[0].valves[1]
+    coordinator._valve_did_not_respond(two, datetime.now(UTC))
+
+    _change(coordinator, "climate.one", 20.0, 21.0)
+    assert written(hass) == ["climate.two"]
+    assert coordinator.valve_paused_until(two) is None

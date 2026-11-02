@@ -109,6 +109,8 @@ The integration never changes covered-radiator mode, heating-system mode, frost 
 
 Writes are serialized, suppressed when unchanged, and recorded as successful only after the target entity reports the requested value; the successful-write history survives restarts.
 
+A valve that answers no write (ZHA: "device did not respond") is paused for 5 minutes, doubling up to one hour, so its timeouts cannot hold up the other rooms; the pause ends as soon as the valve answers a write. Diagnostics show `paused_until` per valve and `unresponsive_valves` per room. Setpoint sync between a room's valves runs on its own and never waits for writes to other rooms.
+
 ### Controlled window-signal test
 
 Only when you explicitly want a live test: choose **one** valve, turn on its external-window switch, wait for the entity state, turn it off again, and confirm the final `off` state and room aggregate. A ZHA switch may acknowledge a service call before its entity state updates.

@@ -78,3 +78,8 @@ MAINTENANCE_RETRY = timedelta(hours=1)
 ADAPTATION_HEAT_DELAY = timedelta(minutes=30)
 ADAPTATION_RETRY = timedelta(hours=24)
 EXERCISE_STAGGER_MINUTES = 10
+
+# A valve that answers no write (ZHA "device did not respond", ~70 s per try)
+# is paused, so it cannot hold up the other rooms: 5 min, doubling, at most 1 h.
+VALVE_PAUSE = timedelta(minutes=5)
+VALVE_PAUSE_MAX = timedelta(hours=1)
