@@ -186,4 +186,5 @@ class HouseRoomsWithDemandSensor(DanfossAllyHouseEntity, SensorEntity):
             ],
             "radiator_rooms": list(demand.rooms_of(RADIATOR)),
             "floor_heating_rooms": list(demand.rooms_of(FLOOR)),
+            "adapting_rooms": list(self.coordinator.adapting_rooms()),
         }

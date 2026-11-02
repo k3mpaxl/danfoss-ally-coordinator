@@ -710,6 +710,58 @@ async def test_house_demand_sensors_report_valves_and_floor_heating(
     assert rooms.attributes["floor_heating_rooms"] == ["Bath"]
 
 
+async def test_house_demand_leaves_out_a_valve_in_its_adaptation_run(
+    hass: HomeAssistant, office
+) -> None:
+    """A valve learning its characteristic drops out of the demand at once."""
+    entities = er.async_get(hass)
+    ids = {}
+    for domain, suffix, object_id, value in (
+        ("binary_sensor", "-513-heat_required", "valve_heat_required", "on"),
+        ("sensor", "-513-pi_heating_demand", "valve_pi_demand", "17"),
+        ("sensor", "-513-adaptation_run_status", "valve_adaptation", "nothing"),
+    ):
+        ids[object_id] = entities.async_get_or_create(
+            domain,
+            "zha",
+            f"00:11-1{suffix}",
+            suggested_object_id=object_id,
+            device_id=office["valve_device_id"],
+            config_entry=office["zha_entry"],
+        ).entity_id
+        hass.states.async_set(ids[object_id], value)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": False,
+            "max_sensor_age_minutes": 120,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    house = {
+        e.unique_id: e.entity_id
+        for e in er.async_entries_for_config_entry(entities, entry.entry_id)
+    }
+    assert hass.states.get(house["house_heat_demand"]).state == "17.0"
+    assert hass.states.get(house["house_rooms_with_demand"]).state == "1"
+
+    hass.states.async_set(
+        ids["valve_adaptation"],
+        "something",
+        {"In_progress": True, "Valve_characteristic_found": False},
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(house["house_heat_demand"]).state == "unknown"
+    assert hass.states.get(house["house_heat_required"]).state == "unknown"
+    rooms = hass.states.get(house["house_rooms_with_demand"])
+    assert rooms.state == "unknown"
+    assert rooms.attributes["adapting_rooms"] == ["Office"]
+
+
 async def test_setup_tolerates_identifiers_with_more_than_two_parts(
     hass: HomeAssistant, office
 ) -> None:

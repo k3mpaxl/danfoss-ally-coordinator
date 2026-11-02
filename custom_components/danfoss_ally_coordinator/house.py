@@ -35,7 +35,7 @@ class DanfossAllyHouseEntity(Entity):
         }
 
     async def async_added_to_hass(self) -> None:
-        """Follow the valves' and thermostats' demand as it changes."""
+        """Follow the valves' and thermostats' demand and adaptation as they change."""
 
         @callback
         def _changed(_event) -> None:
@@ -43,6 +43,6 @@ class DanfossAllyHouseEntity(Entity):
 
         self.async_on_remove(
             async_track_state_change_event(
-                self.hass, sorted(self.coordinator.demand_entity_ids()), _changed
+                self.hass, sorted(self.coordinator.house_entity_ids()), _changed
             )
         )

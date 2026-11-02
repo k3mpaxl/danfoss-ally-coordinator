@@ -1414,10 +1414,36 @@ class RoomCoordinator:
             if entity_id
         ) | frozenset(self.demand_climates)
 
+    def house_entity_ids(self) -> frozenset[str]:
+        """Every entity the house entities follow: demand plus adaptation status."""
+        return self.demand_entity_ids() | frozenset(
+            valve.adaptation_status_entity_id
+            for room in self.rooms
+            for valve in room.valves
+            if valve.adaptation_status_entity_id
+        )
+
+    def adapting_rooms(self) -> tuple[str, ...]:
+        """Rooms with a valve in its adaptation run; their demand is left out."""
+        return tuple(
+            sorted(
+                {
+                    room.name
+                    for room in self.rooms
+                    for valve in room.valves
+                    if self.adaptation_running(valve)
+                }
+            )
+        )
+
     def _demand_sources(self) -> list[DemandSource]:
         sources: list[DemandSource] = []
         for room in self.rooms:
             for valve in room.valves:
+                # During the run the valve moves on its own (PI 15-20 % even at a
+                # 5 degree setpoint, 2026-11-02), so it says nothing about the room.
+                if self.adaptation_running(valve):
+                    continue
                 required = percent = None
                 if valve.heat_required_entity_id and (
                     state := self.hass.states.get(valve.heat_required_entity_id)

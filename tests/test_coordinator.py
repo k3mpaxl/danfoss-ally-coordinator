@@ -1617,6 +1617,45 @@ def test_house_demand_combines_valves_and_floor_heating() -> None:
     assert "climate.bath_floor" in coordinator.demand_entity_ids()
 
 
+def test_valve_in_adaptation_run_does_not_count_as_demand() -> None:
+    """While a valve learns its characteristic, its PI says nothing about the room."""
+    hass = upkeep_hass(
+        **{
+            "binary_sensor.trv_heat_required": state(
+                "binary_sensor.trv_heat_required", "on"
+            ),
+            "sensor.trv_pi_demand": state("sensor.trv_pi_demand", "17"),
+            "sensor.trv_adaptation": state(
+                "sensor.trv_adaptation",
+                "something",
+                {"In_progress": True, "Valve_characteristic_found": False},
+            ),
+        }
+    )
+    coordinator = RoomCoordinator(
+        hass,
+        rooms=(upkeep_room(),),
+        enabled=True,
+        max_sensor_age=timedelta(hours=2),
+    )
+    demand = coordinator.house_demand()
+    assert demand.radiators_max_percent is None
+    assert demand.radiators_required is None and demand.rooms == ()
+    assert coordinator.adapting_rooms() == ("Büro",)
+    assert "sensor.trv_adaptation" in coordinator.house_entity_ids()
+
+    hass.states.set(
+        state(
+            "sensor.trv_adaptation",
+            "something",
+            {"In_progress": False, "Valve_characteristic_found": True},
+        )
+    )
+    demand = coordinator.house_demand()
+    assert demand.radiators_max_percent == 17 and demand.radiators_required
+    assert coordinator.adapting_rooms() == ()
+
+
 def _quiet_setup():
     """One valve with a room sensor and an open door, so every round writes."""
     room = RoomDefinition(
