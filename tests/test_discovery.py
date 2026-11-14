@@ -1,10 +1,17 @@
 """Discovery behavior for room-scoped Danfoss coordination."""
 
+import pytest
+
 from custom_components.danfoss_ally_coordinator.discovery import (
+    DANFOSS_MODELS,
     DeviceRecord,
     EntityRecord,
+    IncompleteValve,
     discover_rooms,
 )
+
+# The Ally radiator thermostat reports its hardware revision as the Zigbee model.
+ALLY_MODELS = ("eTRV0100", "eTRV0101", "eTRV0103")
 
 
 def test_discovery_groups_zha_danfoss_valves_and_all_area_temperature_sources() -> None:
@@ -330,3 +337,135 @@ def test_valve_without_control_entities_is_reported_not_dropped() -> None:
     # An area whose only valve is incomplete still shows up.
     assert bedroom.valves == ()
     assert bedroom.incomplete_valves[0].name == "Lonely"
+
+
+def _zha(entity_id, domain, unique_id, device_id, *, disabled=False):
+    return EntityRecord(
+        entity_id, domain, "zha", unique_id, device_id, None, None, disabled
+    )
+
+
+def _complete_valve(device_id: str) -> tuple[EntityRecord, ...]:
+    """A valve's climate entity plus the two control entities ZHA's quirk adds."""
+    return (
+        _zha(f"climate.{device_id}", "climate", f"{device_id}-1", device_id),
+        _zha(
+            f"number.{device_id}_external",
+            "number",
+            f"{device_id}-1-513-external_measured_room_sensor",
+            device_id,
+        ),
+        _zha(
+            f"switch.{device_id}_window",
+            "switch",
+            f"{device_id}-1-513-external_open_window_detected",
+            device_id,
+        ),
+    )
+
+
+def test_supported_models_are_the_ally_revisions() -> None:
+    """The set is deliberate: not every model that ZHA's Danfoss quirk matches."""
+    assert DANFOSS_MODELS == set(ALLY_MODELS)
+
+
+@pytest.mark.parametrize("model", ALLY_MODELS)
+def test_every_ally_revision_with_a_climate_entity_is_discovered(model: str) -> None:
+    rooms = discover_rooms(
+        devices=(DeviceRecord("valve", "Danfoss", model, "office", "Valve"),),
+        entities=_complete_valve("valve"),
+        areas={"office": "Office"},
+        selected_area_ids={"office"},
+    )
+
+    assert len(rooms) == 1
+    assert rooms[0].incomplete_valves == ()
+    valve = rooms[0].valves[0]
+    assert (valve.device_id, valve.name) == ("valve", "Valve")
+    assert valve.climate_entity_id == "climate.valve"
+    assert valve.temperature_entity_id == "number.valve_external"
+    assert valve.window_entity_id == "switch.valve_window"
+
+
+@pytest.mark.parametrize("model", ALLY_MODELS)
+def test_ally_revision_without_control_entities_is_incomplete_not_controlled(
+    model: str,
+) -> None:
+    """The safety net does not depend on the model: no control entities, no writes."""
+    devices = (
+        DeviceRecord("bare", "Danfoss", model, "office", "Bare"),
+        DeviceRecord("half", "Danfoss", model, "office", "Half"),
+    )
+    entities = (
+        _zha("climate.bare", "climate", "bare-1", "bare"),
+        _zha("climate.half", "climate", "half-1", "half"),
+        _zha(
+            "number.half_external",
+            "number",
+            "half-1-513-external_measured_room_sensor",
+            "half",
+        ),
+        _zha(
+            "switch.half_window",
+            "switch",
+            "half-1-513-external_open_window_detected",
+            "half",
+            disabled=True,
+        ),
+    )
+
+    rooms = discover_rooms(
+        devices=devices,
+        entities=entities,
+        areas={"office": "Office"},
+        selected_area_ids={"office"},
+    )
+
+    assert len(rooms) == 1
+    assert rooms[0].valves == ()
+    assert rooms[0].incomplete_valves == (
+        IncompleteValve(
+            "bare",
+            "Bare",
+            ("external_measured_room_sensor", "external_open_window_detected"),
+        ),
+        IncompleteValve("half", "Half", ("external_open_window_detected (disabled)",)),
+    )
+
+
+def test_both_revisions_in_one_room_are_coordinated_together() -> None:
+    """Valves bought years apart report different models but share the room."""
+    rooms = discover_rooms(
+        devices=(
+            DeviceRecord("old", "Danfoss", "eTRV0100", "office", "Old"),
+            DeviceRecord("new", "Danfoss", "eTRV0103", "office", "New"),
+        ),
+        entities=(*_complete_valve("old"), *_complete_valve("new")),
+        areas={"office": "Office"},
+        selected_area_ids={"office"},
+    )
+
+    assert [valve.device_id for valve in rooms[0].valves] == ["new", "old"]
+
+
+@pytest.mark.parametrize(
+    ("manufacturer", "model"),
+    [
+        ("Danfoss", "eTRV0102"),  # not a model ZHA's quirk matches
+        ("Danfoss", "TRV001"),  # Hive-branded: matched by the quirk, never run here
+        ("D5X84YU", "eT093WRO"),  # Popp-branded: another manufacturer string
+        ("Acme", "eTRV0100"),  # the manufacturer check stays
+        (None, "eTRV0100"),
+    ],
+)
+def test_other_devices_are_not_controlled_even_with_all_entities(
+    manufacturer: str | None, model: str
+) -> None:
+    rooms = discover_rooms(
+        devices=(DeviceRecord("valve", manufacturer, model, "office", "Valve"),),
+        entities=_complete_valve("valve"),
+        areas={"office": "Office"},
+        selected_area_ids={"office"},
+    )
+
+    assert rooms == ()

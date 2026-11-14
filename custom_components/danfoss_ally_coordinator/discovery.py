@@ -6,7 +6,14 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 DANFOSS_MANUFACTURER = "Danfoss"
-DANFOSS_MODEL = "eTRV0103"
+# Zigbee models of the Danfoss Ally radiator thermostat (order no. 014G2461) that
+# ZHA's built-in quirk (zhaquirks.danfoss.thermostat) handles with the same clusters
+# under manufacturer "Danfoss", so they expose the same control entities. eTRV0100
+# is the earlier microcontroller revision, eTRV0103 the newer one; Danfoss states
+# that radio software and behaviour are the same. The quirk also matches Hive
+# TRV001/TRV003 and Popp eT093WRO/eT093WRG: they stay out until someone has run
+# them with this integration.
+DANFOSS_MODELS = frozenset({"eTRV0100", "eTRV0101", "eTRV0103"})
 ZHA_PLATFORM = "zha"
 TEMPERATURE_UNIQUE_SUFFIX = "-external_measured_room_sensor"
 WINDOW_UNIQUE_SUFFIX = "-external_open_window_detected"
@@ -154,7 +161,7 @@ def _zha_danfoss_target_ids(
         for device_id, device in devices.items()
         if device_id in zha_climate_device_ids
         and device.manufacturer == DANFOSS_MANUFACTURER
-        and device.model == DANFOSS_MODEL
+        and device.model in DANFOSS_MODELS
     }
 
 

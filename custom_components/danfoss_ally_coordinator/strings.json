@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Select Danfoss Ally rooms",
-        "description": "The integration detects ZHA Danfoss eTRV0103 valves from Home Assistant areas. Verify that every selected area represents one real heated room.",
+        "description": "The integration detects ZHA Danfoss Ally eTRV valves (eTRV0100, eTRV0101, eTRV0103) from Home Assistant areas. Verify that every selected area represents one real heated room.",
         "data": {
           "areas": "Areas to coordinate",
           "enabled": "Enable Zigbee synchronization",
@@ -43,7 +43,7 @@
     },
     "abort": {
       "already_configured": "Danfoss Ally Coordinator is already configured.",
-      "no_supported_rooms": "No area with a supported ZHA Danfoss eTRV0103 and required control entities was found."
+      "no_supported_rooms": "No area with a supported ZHA Danfoss Ally eTRV (eTRV0100, eTRV0101 or eTRV0103) and required control entities was found."
     }
   },
   "options": {
@@ -88,7 +88,7 @@
       "no_areas_selected": "Select at least one area."
     },
     "abort": {
-      "no_supported_rooms": "No area with a supported ZHA Danfoss eTRV0103 and required control entities was found."
+      "no_supported_rooms": "No area with a supported ZHA Danfoss Ally eTRV (eTRV0100, eTRV0101 or eTRV0103) and required control entities was found."
     }
   },
   "entity": {

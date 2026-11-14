@@ -8,6 +8,7 @@ from custom_components.danfoss_ally_coordinator.config_flow import (
     _area_option_label,
     _schema,
 )
+from custom_components.danfoss_ally_coordinator.discovery import DANFOSS_MODELS
 
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = ROOT / "custom_components" / "danfoss_ally_coordinator"
@@ -45,6 +46,31 @@ def test_english_defaults_and_complete_german_translation():
         german["services"]["refresh"]["name"]
         == "Erkennung und Synchronisierung aktualisieren"
     )
+
+
+def test_texts_name_every_model_that_discovery_accepts():
+    """The setup texts and the README list the models discovery really takes."""
+    for name in ("strings.json", "translations/en.json", "translations/de.json"):
+        catalog = json.loads((DOMAIN / name).read_text(encoding="utf-8"))
+        texts = {
+            "setup description": catalog["config"]["step"]["user"]["description"],
+            "setup abort": catalog["config"]["abort"]["no_supported_rooms"],
+            "options abort": catalog["options"]["abort"]["no_supported_rooms"],
+        }
+        for where, text in texts.items():
+            for model in sorted(DANFOSS_MODELS):
+                assert model in text, f"{name}: {model} missing from the {where}"
+
+    readme_lines = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+    for start in (
+        "A Home Assistant HACS custom integration",
+        "- Danfoss Ally valves",
+        "- **Discovery:**",
+    ):
+        line = next((line for line in readme_lines if line.startswith(start)), None)
+        assert line is not None, f"README line starting with {start!r} not found"
+        for model in sorted(DANFOSS_MODELS):
+            assert model in line, f"README: {model} missing from {start!r}"
 
 
 def test_area_label_uses_language_neutral_counts():

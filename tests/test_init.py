@@ -519,6 +519,100 @@ async def test_incomplete_valve_raises_a_repair_issue(
     )
 
 
+@pytest.mark.parametrize("model", ["eTRV0100", "eTRV0101"])
+async def test_valve_of_another_ally_revision_is_coordinated(
+    hass: HomeAssistant, office, model: str
+) -> None:
+    """The earlier revisions are written like the eTRV0103 (issue #1)."""
+    ids, calls = office["ids"], office["calls"]
+    dr.async_get(hass).async_update_device(office["valve_device_id"], model=model)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": True,
+            "max_sensor_age_minutes": 120,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    written = {(call.domain, call.service, call.data["entity_id"]) for call in calls}
+    assert ("number", "set_value", ids["external"]) in written
+    assert ("switch", "turn_on", ids["window"]) in written
+    assert hass.states.get(ids["external"]).state == "25.5"
+
+
+async def test_incomplete_old_revision_is_reported_and_never_written(
+    hass: HomeAssistant, office
+) -> None:
+    """An eTRV0100 without control entities is shown, but no write reaches it."""
+    ids, calls = office["ids"], office["calls"]
+    valve2 = add_second_valve(hass, office)
+    devices = dr.async_get(hass)
+    bare = devices.async_get_or_create(
+        config_entry_id=office["zha_entry"].entry_id,
+        identifiers={("zha", "00:44")},
+        manufacturer="Danfoss",
+        model="eTRV0100",
+        name="Old valve",
+    )
+    devices.async_update_device(bare.id, area_id=office["area_id"])
+    bare_climate = (
+        er.async_get(hass)
+        .async_get_or_create(
+            "climate",
+            "zha",
+            "00:44-1",
+            suggested_object_id="old_valve",
+            device_id=bare.id,
+            config_entry=office["zha_entry"],
+        )
+        .entity_id
+    )
+    hass.states.async_set(bare_climate, "heat", {"temperature": 18.0})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "areas": [office["area_id"]],
+            "enabled": True,
+            "max_sensor_age_minutes": 120,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = entry.runtime_data
+    room = coordinator.rooms[0]
+    assert {valve.name for valve in room.valves} == {"Valve", "Valve 2"}
+    assert [valve.device_id for valve in room.incomplete_valves] == [bare.id]
+
+    # A changed target reaches the complete valve, never the incomplete one.
+    climate1 = ids["climate"]
+    await coordinator.async_handle_setpoint_change(
+        climate1,
+        hass.states.get(climate1),
+        State(climate1, "heat", {"temperature": 22.0}),
+    )
+    assert hass.states.get(valve2["climate"]).attributes["temperature"] == 22.0
+    assert hass.states.get(bare_climate).attributes["temperature"] == 18.0
+    assert all(call.data["entity_id"] != bare_climate for call in calls)
+
+    # It is shown instead: repair issue and room attribute.
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, f"incomplete_valve_{bare.id}")
+    assert issue is not None
+    assert issue.translation_placeholders["valve"] == "Old valve"
+    mean_id = next(
+        entity.entity_id
+        for entity in er.async_get(hass).entities.values()
+        if entity.platform == DOMAIN and entity.unique_id.endswith("_mean_temperature")
+    )
+    shown = hass.states.get(mean_id).attributes["incomplete_valves"]
+    assert [valve["name"] for valve in shown] == ["Old valve"]
+
+
 async def test_renamed_source_keeps_its_setting_and_switch(
     hass: HomeAssistant, office
 ) -> None:

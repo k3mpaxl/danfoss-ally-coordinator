@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Danfoss-Ally-Räume auswählen",
-        "description": "Die Integration erkennt ZHA-Danfoss-eTRV0103 nach Home-Assistant-Bereichen. Prüfen Sie, ob jeder Bereich tatsächlich einen gemeinsamen beheizten Raum darstellt.",
+        "description": "Die Integration erkennt ZHA-Danfoss-Ally-eTRV (eTRV0100, eTRV0101, eTRV0103) nach Home-Assistant-Bereichen. Prüfen Sie, ob jeder Bereich tatsächlich einen gemeinsamen beheizten Raum darstellt.",
         "data": {
           "areas": "Zu koordinierende Bereiche",
           "enabled": "Zigbee-Synchronisierung aktivieren",
@@ -43,7 +43,7 @@
     },
     "abort": {
       "already_configured": "Der Danfoss Ally Coordinator ist bereits eingerichtet.",
-      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-eTRV0103 und den erforderlichen Steuer-Entities gefunden."
+      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-Ally-eTRV (eTRV0100, eTRV0101 oder eTRV0103) und den erforderlichen Steuer-Entities gefunden."
     }
   },
   "options": {
@@ -88,7 +88,7 @@
       "no_areas_selected": "Mindestens einen Bereich auswählen."
     },
     "abort": {
-      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-eTRV0103 und den erforderlichen Steuer-Entities gefunden."
+      "no_supported_rooms": "Es wurden keine Bereiche mit einem unterstützten ZHA-Danfoss-Ally-eTRV (eTRV0100, eTRV0101 oder eTRV0103) und den erforderlichen Steuer-Entities gefunden."
     }
   },
   "entity": {
