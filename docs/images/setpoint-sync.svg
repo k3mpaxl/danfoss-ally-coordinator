@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 330" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">
+  <title>Target temperature sync between two valves</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#4b5563"/>
+    </marker>
+  </defs>
+  <rect width="900" height="330" rx="12" fill="#ffffff" stroke="#d1d5db"/>
+  <text x="24" y="36" font-size="18" font-weight="600" fill="#111827">Two valves in one room keep the same target temperature</text>
+
+  <rect x="24" y="60" width="852" height="170" rx="10" fill="#f3f4f6" stroke="#9ca3af" stroke-dasharray="6 4"/>
+  <text x="40" y="84" font-weight="600" fill="#374151">Room with two valves</text>
+
+  <rect x="50" y="100" width="190" height="110" rx="10" fill="#ffedd5" stroke="#f97316"/>
+  <text x="145" y="128" text-anchor="middle" font-weight="600" fill="#7c2d12">Valve 1</text>
+  <text x="145" y="158" text-anchor="middle" fill="#7c2d12">turned to</text>
+  <text x="145" y="188" text-anchor="middle" font-size="26" font-weight="700" fill="#7c2d12">22 °C</text>
+
+  <path d="M240 155H330" stroke="#4b5563" stroke-width="2" marker-end="url(#a)" fill="none"/>
+  <text x="285" y="145" text-anchor="middle" fill="#374151" font-size="13">settled 3 s</text>
+
+  <rect x="334" y="110" width="232" height="90" rx="10" fill="#ffffff" stroke="#374151" stroke-width="2"/>
+  <text x="450" y="140" text-anchor="middle" font-weight="600" fill="#111827">Coordinator</text>
+  <text x="450" y="164" text-anchor="middle" fill="#374151" font-size="14">passes the target on,</text>
+  <text x="450" y="184" text-anchor="middle" fill="#374151" font-size="14">within each valve's limits</text>
+
+  <path d="M566 155H656" stroke="#4b5563" stroke-width="2" marker-end="url(#a)" fill="none"/>
+
+  <rect x="660" y="100" width="190" height="110" rx="10" fill="#ffedd5" stroke="#f97316"/>
+  <text x="755" y="128" text-anchor="middle" font-weight="600" fill="#7c2d12">Valve 2</text>
+  <text x="755" y="158" text-anchor="middle" fill="#7c2d12">follows to</text>
+  <text x="755" y="188" text-anchor="middle" font-size="26" font-weight="700" fill="#7c2d12">22 °C</text>
+
+  <text x="40" y="262" fill="#374151" font-size="14">• Works in both directions; the room's “Synchronize target temperature” switch turns it off (on by default).</text>
+  <text x="40" y="284" fill="#374151" font-size="14">• A valve in its adaptation run is left alone; the coordinator's own writes never start another round.</text>
+  <text x="40" y="306" fill="#374151" font-size="14">• Existing differences stay until the next change.</text>
+</svg>

@@ -7,6 +7,23 @@ A Home Assistant HACS custom integration for the **Danfoss Ally electronic radia
 
 > **ZHA alone exposes the datapoints – the coordinator uses them.** The eTRV is designed to run under a gateway. Danfoss's [Feature Catalogue](https://assets.danfoss.com/documents/latest/602270/AU417130778872en-000201.pdf) assigns a long list of duties to that gateway: setting the clock (and summer time), feeding an external room temperature on a strict cadence, distributing window state, calculating the room load mean, telling the valve whether heat is available, starting the adaptation run when there *is* heat. ZHA's built-in Danfoss quirk turns every datapoint into an entity (the same set [Zigbee2MQTT documents](https://www.zigbee2mqtt.io/devices/014G2461.html)), but nothing drives them – a valve on ZHA alone runs on its own sensor, with an unset or wrong clock, a nightly adaptation that fails without heat, and no idea of its room. Only together with this coordinator does the valve use its features and datapoints the way Danfoss intends. See [*Datapoints: ZHA alone vs. with the coordinator*](#datapoints-zha-alone-vs-with-the-coordinator).
 
+## Screenshots
+
+Screenshots of a German Home Assistant; room names other than the office are replaced.
+
+| | |
+| :--- | :--- |
+| **Setup:** select the areas to coordinate and set the options (gear icon on the integration). | ![Setup dialog](docs/images/setup-dialog.png) |
+| **Room device:** room temperature, number of valid sources, each valve's deviation, and one switch per source. | ![Room device](docs/images/room-device.png) |
+| **Room temperature** with its history. | ![Room temperature](docs/images/room-temperature.jpg) |
+| **House device:** whether any room needs heat, radiators and floor heating apart, highest valve demand. | ![House device](docs/images/house-device.png) |
+
+## How it works
+
+![Sources are found by area](docs/images/auto-discovery.svg)
+
+![Target temperature sync between two valves](docs/images/setpoint-sync.svg)
+
 ## Datapoints: ZHA alone vs. with the coordinator
 
 All datapoints of the eTRV as listed by [Zigbee2MQTT](https://www.zigbee2mqtt.io/devices/014G2461.html) and specified in the Danfoss [Feature Catalogue](https://assets.danfoss.com/documents/latest/602270/AU417130778872en-000201.pdf). *ZHA* means the entity ZHA's built-in quirk creates; *coordinator* means what this integration does with it.
